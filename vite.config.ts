@@ -3,8 +3,9 @@ import vue from '@vitejs/plugin-vue'
 
 export default defineConfig({
   plugins: [vue()],
-  root: '.',  // root van je source, hier de folder waar index.html staat
+  base: '/',           // Zorg dat alle paden correct zijn
   build: {
-    outDir: 'dist',
+    outDir: 'dist',    // Output folder
+    emptyOutDir: true  // Maak dist schoon bij elke build
   },
 })

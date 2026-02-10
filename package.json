@@ -3,11 +3,12 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
-  "scripts": {
-    "dev": "vite",
-    "build": "vue-tsc -b && vite build",
-    "preview": "vite preview"
-  },
+"scripts": {
+  "dev": "vite",
+  "build": "vue-tsc -b && vite build",
+  "serve": "vite preview"
+}
+,
   "dependencies": {
     "@supabase/supabase-js": "^2.95.3",
     "vue": "^3.4.38"
