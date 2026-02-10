@@ -26,3 +26,23 @@ export interface Teacher {
   username: string
   created_at: string
 }
+
+export interface Reward {
+  id: string
+  teacher_id: string
+  name: string
+  description: string
+  points_required: number
+  icon: string
+  created_at: string
+}
+
+export interface StudentReward {
+  id: string
+  student_id: string
+  reward_id: string
+  assigned_at: string
+  redeemed: boolean
+  redeemed_at: string | null
+  reward?: Reward
+}

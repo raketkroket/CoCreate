@@ -1,17 +1,22 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
 import { supabase } from '../composables/supabase'
-import type { Student, Attendance } from '../composables/supabase'
+import type { Student, Attendance, Reward, StudentReward } from '../composables/supabase'
 import { useAuth } from '../composables/useAuth'
 import StudentCard from './StudentCard.vue'
 import AddStudentModal from './AddStudentModal.vue'
+import AssignRewardModal from './AssignRewardModal.vue'
 
 const { user, signOut } = useAuth()
 
 const students = ref<Student[]>([])
 const attendanceRecords = ref<Attendance[]>([])
+const rewards = ref<Reward[]>([])
+const studentRewards = ref<StudentReward[]>([])
 const isLoading = ref(true)
 const showAddModal = ref(false)
+const showRewardModal = ref(false)
+const selectedStudentId = ref<string | null>(null)
 const teacherName = ref('')
 const currentWeekOffset = ref(0)
 
@@ -234,11 +239,151 @@ const goToCurrentWeek = async () => {
   await loadAttendance()
 }
 
+const loadRewards = async () => {
+  if (!user.value) return
+
+  const { data } = await supabase
+    .from('rewards')
+    .select('*')
+    .eq('teacher_id', user.value.id)
+    .order('points_required', { ascending: true })
+
+  if (data) {
+    rewards.value = data
+  }
+}
+
+const loadStudentRewards = async () => {
+  if (!user.value) return
+
+  const { data } = await supabase
+    .from('student_rewards')
+    .select(`
+      *,
+      reward:rewards(*)
+    `)
+    .order('assigned_at', { ascending: false })
+
+  if (data) {
+    studentRewards.value = data
+  }
+}
+
+const getStudentRewards = (studentId: string) => {
+  return studentRewards.value.filter(sr => sr.student_id === studentId)
+}
+
+const selectedStudent = computed(() => {
+  return students.value.find(s => s.id === selectedStudentId.value)
+})
+
+const openRewardModal = (studentId: string) => {
+  selectedStudentId.value = studentId
+  showRewardModal.value = true
+}
+
+const assignReward = async (rewardId: string) => {
+  if (!selectedStudentId.value) return
+
+  try {
+    const { data } = await supabase
+      .from('student_rewards')
+      .insert({
+        student_id: selectedStudentId.value,
+        reward_id: rewardId,
+        redeemed: false
+      })
+      .select(`
+        *,
+        reward:rewards(*)
+      `)
+      .single()
+
+    if (data) {
+      studentRewards.value.push(data)
+      showRewardModal.value = false
+      selectedStudentId.value = null
+    }
+  } catch (err) {
+    console.error('Error assigning reward:', err)
+  }
+}
+
+const createAndAssignReward = async (
+  name: string,
+  description: string,
+  pointsRequired: number,
+  icon: string
+) => {
+  if (!user.value || !selectedStudentId.value) return
+
+  try {
+    const { data: rewardData } = await supabase
+      .from('rewards')
+      .insert({
+        teacher_id: user.value.id,
+        name,
+        description,
+        points_required: pointsRequired,
+        icon
+      })
+      .select()
+      .single()
+
+    if (rewardData) {
+      rewards.value.push(rewardData)
+      await assignReward(rewardData.id)
+    }
+  } catch (err) {
+    console.error('Error creating reward:', err)
+  }
+}
+
+const toggleRewardRedeemed = async (studentRewardId: string) => {
+  const studentReward = studentRewards.value.find(sr => sr.id === studentRewardId)
+  if (!studentReward) return
+
+  try {
+    const newRedeemed = !studentReward.redeemed
+    await supabase
+      .from('student_rewards')
+      .update({
+        redeemed: newRedeemed,
+        redeemed_at: newRedeemed ? new Date().toISOString() : null
+      })
+      .eq('id', studentRewardId)
+
+    studentReward.redeemed = newRedeemed
+    studentReward.redeemed_at = newRedeemed ? new Date().toISOString() : null
+  } catch (err) {
+    console.error('Error toggling reward:', err)
+  }
+}
+
+const removeReward = async (studentRewardId: string) => {
+  if (!confirm('Weet je zeker dat je deze beloning wilt verwijderen?')) {
+    return
+  }
+
+  try {
+    await supabase
+      .from('student_rewards')
+      .delete()
+      .eq('id', studentRewardId)
+
+    studentRewards.value = studentRewards.value.filter(sr => sr.id !== studentRewardId)
+  } catch (err) {
+    console.error('Error removing reward:', err)
+  }
+}
+
 onMounted(async () => {
   isLoading.value = true
   await loadTeacherInfo()
   await loadStudents()
   await loadAttendance()
+  await loadRewards()
+  await loadStudentRewards()
   isLoading.value = false
 })
 </script>
@@ -355,9 +500,13 @@ onMounted(async () => {
             :student="student"
             :week-dates="weekDates"
             :day-names="dayNames"
+            :student-rewards="getStudentRewards(student.id)"
             :get-attendance="getAttendance"
             @toggle-attendance="toggleAttendance"
             @delete-student="deleteStudent"
+            @assign-reward="openRewardModal"
+            @toggle-reward-redeemed="toggleRewardRedeemed"
+            @remove-reward="removeReward"
           />
         </div>
       </div>
@@ -367,6 +516,15 @@ onMounted(async () => {
       v-if="showAddModal"
       @add="addStudent"
       @close="showAddModal = false"
+    />
+
+    <AssignRewardModal
+      v-if="showRewardModal && selectedStudent"
+      :student="selectedStudent"
+      :available-rewards="rewards"
+      @assign="assignReward"
+      @create-and-assign="createAndAssignReward"
+      @close="showRewardModal = false; selectedStudentId = null"
     />
   </div>
 </template>
@@ -624,7 +782,7 @@ h1 {
 
 .week-header {
   display: grid;
-  grid-template-columns: 280px 1fr 80px;
+  grid-template-columns: 280px 1fr 100px;
   gap: 1rem;
   padding: 1.25rem;
   background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
@@ -660,7 +818,7 @@ h1 {
 
 @media (max-width: 1024px) {
   .week-header {
-    grid-template-columns: 200px 1fr 80px;
+    grid-template-columns: 200px 1fr 90px;
     gap: 0.75rem;
     font-size: 0.75rem;
   }
