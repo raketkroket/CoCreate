@@ -150,7 +150,7 @@ const toggleAttendance = async (studentId: string, date: string) => {
 }
 
 const checkWeeklyBonus = async (studentId: string) => {
-  const student = students.value.find((s: Student) => s.id === studentId)
+  const student = students.value.find(s => s.id === studentId)
   if (!student) return
 
   const weekAttendance = weekDates.value.map(date => getAttendance(studentId, date))

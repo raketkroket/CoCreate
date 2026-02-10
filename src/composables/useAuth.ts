@@ -1,4 +1,4 @@
-import { ref, onMounted } from 'vue'
+import { ref } from 'vue'
 import { supabase } from './supabase'
 import type { User } from '@supabase/supabase-js'
 
@@ -7,26 +7,25 @@ const loading = ref(true)
 
 export function useAuth() {
   const signUp = async (email: string, password: string, username: string) => {
-    const { data, error } = await supabase.auth.signUp({
+    const { data: authData, error: authError } = await supabase.auth.signUp({
       email,
       password
     })
 
-    if (error) throw error
+    if (authError) throw authError
 
-    if (data.user) {
+    if (authData.user) {
       const { error: profileError } = await supabase
         .from('teachers')
         .insert({
-          id: data.user.id,
-          username,
-          email
+          id: authData.user.id,
+          username
         })
 
       if (profileError) throw profileError
-    }
 
-    return data
+      user.value = authData.user
+    }
   }
 
   const signIn = async (email: string, password: string) => {
@@ -38,7 +37,6 @@ export function useAuth() {
     if (error) throw error
 
     user.value = data.user
-    return data
   }
 
   const signOut = async () => {
@@ -48,25 +46,17 @@ export function useAuth() {
   }
 
   const initAuth = () => {
-    supabase.auth.onAuthStateChange((_event: string, session: any) => {
+    supabase.auth.onAuthStateChange((_event, session) => {
       (async () => {
-        user.value = session?.user ?? null
+        user.value = session?.user || null
         loading.value = false
       })()
     })
   }
 
-  onMounted(async () => {
-    const { data } = await supabase.auth.getSession()
-    user.value = data.session?.user ?? null
-    loading.value = false
-  })
-
   return {
     user,
     loading,
-    login: signIn,
-    logout: signOut,
     signUp,
     signIn,
     signOut,
