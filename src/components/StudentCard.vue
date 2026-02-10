@@ -47,42 +47,14 @@ const pointsProgress = computed(() => {
   const progress = ((points - prevMilestone) / (nextMilestone - prevMilestone)) * 100
   return { progress: Math.min(progress, 100), nextMilestone }
 })
-
-const getInitials = computed(() => {
-  const parts = props.student.name.trim().split(/\s+/)
-  if (parts.length === 1) {
-    return parts[0].substring(0, 2).toUpperCase()
-  }
-  return (parts[0].charAt(0) + parts[parts.length - 1].charAt(0)).toUpperCase()
-})
-
-const getAvatarColor = computed(() => {
-  const colors = [
-    { bg: 'linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%)', shadow: 'rgba(59, 130, 246, 0.3)' },
-    { bg: 'linear-gradient(135deg, #10b981 0%, #059669 100%)', shadow: 'rgba(16, 185, 129, 0.3)' },
-    { bg: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)', shadow: 'rgba(245, 158, 11, 0.3)' },
-    { bg: 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)', shadow: 'rgba(239, 68, 68, 0.3)' },
-    { bg: 'linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)', shadow: 'rgba(139, 92, 246, 0.3)' },
-    { bg: 'linear-gradient(135deg, #ec4899 0%, #db2777 100%)', shadow: 'rgba(236, 72, 153, 0.3)' },
-    { bg: 'linear-gradient(135deg, #14b8a6 0%, #0d9488 100%)', shadow: 'rgba(20, 184, 166, 0.3)' },
-    { bg: 'linear-gradient(135deg, #f97316 0%, #ea580c 100%)', shadow: 'rgba(249, 115, 22, 0.3)' }
-  ]
-
-  let hash = 0
-  for (let i = 0; i < props.student.name.length; i++) {
-    hash = props.student.name.charCodeAt(i) + ((hash << 5) - hash)
-  }
-
-  return colors[Math.abs(hash) % colors.length]
-})
 </script>
 
 <template>
   <div class="student-row">
     <div class="student-info">
       <div class="avatar-container">
-        <div class="avatar" :style="{ background: getAvatarColor.bg, boxShadow: `0 4px 12px ${getAvatarColor.shadow}` }">
-          {{ getInitials }}
+        <div class="avatar">
+          {{ student.name.charAt(0).toUpperCase() }}
         </div>
         <div class="achievement-badge" :style="{ background: achievementLevel.color }">
           <span class="achievement-icon">{{ achievementLevel.icon }}</span>
@@ -187,14 +159,15 @@ const getAvatarColor = computed(() => {
   width: 56px;
   height: 56px;
   border-radius: 14px;
+  background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
   color: white;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 1.25rem;
+  font-size: 1.5rem;
   font-weight: 700;
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
   border: 3px solid white;
-  letter-spacing: 0.02em;
 }
 
 .achievement-badge {
