@@ -1,7 +1,10 @@
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 
-// https://vitejs.dev/config/
 export default defineConfig({
   plugins: [vue()],
+  root: '.',  // root van je source, hier de folder waar index.html staat
+  build: {
+    outDir: 'dist',
+  },
 })
