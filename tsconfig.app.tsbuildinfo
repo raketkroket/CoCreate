@@ -1,0 +1,1 @@
+{"root":["./src/env.d.ts","./src/main.ts","./src/useauth.ts","./src/composables/supabase.ts","./src/composables/useauth.ts","./src/app.vue","./src/components/addstudentmodal.vue","./src/components/authform.vue","./src/components/dashboard.vue","./src/components/studentcard.vue"],"version":"5.9.3"}
