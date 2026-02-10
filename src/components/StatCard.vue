@@ -3,7 +3,7 @@ defineProps<{
   title: string
   value: string | number
   icon: string
-  color: 'blue' | 'green' | 'orange' | 'purple'
+  color: string
   trend?: string
 }>()
 </script>

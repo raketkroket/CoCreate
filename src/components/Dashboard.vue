@@ -108,6 +108,11 @@ const toggleAttendance = async (studentId: string, date: string) => {
   if (!student) return
 
   try {
+    const weekAttendanceBefore = weekDates.value.map(d => getAttendance(studentId, d))
+    const wasWeekComplete = weekAttendanceBefore.every(a => a !== undefined)
+    const wasAllOnTime = wasWeekComplete && weekAttendanceBefore.every(a => a?.on_time)
+    const wasAllLate = wasWeekComplete && weekAttendanceBefore.every(a => !a?.on_time)
+
     if (existing) {
       const newOnTime = !existing.on_time
       const pointsDiff = newOnTime ? 2 : -2
@@ -116,11 +121,6 @@ const toggleAttendance = async (studentId: string, date: string) => {
         .from('attendance')
         .update({ on_time: newOnTime })
         .eq('id', existing.id)
-
-      await supabase
-        .from('students')
-        .update({ points: student.points + pointsDiff })
-        .eq('id', studentId)
 
       existing.on_time = newOnTime
       student.points += pointsDiff
@@ -137,11 +137,6 @@ const toggleAttendance = async (studentId: string, date: string) => {
         .select()
         .single()
 
-      await supabase
-        .from('students')
-        .update({ points: student.points + 1 })
-        .eq('id', studentId)
-
       if (data) {
         attendanceRecords.value.push(data)
       }
@@ -149,35 +144,35 @@ const toggleAttendance = async (studentId: string, date: string) => {
       student.points += 1
     }
 
-    await checkWeeklyBonus(studentId)
+    const weekAttendanceAfter = weekDates.value.map(d => getAttendance(studentId, d))
+    const isWeekComplete = weekAttendanceAfter.every(a => a !== undefined)
+    const isAllOnTime = isWeekComplete && weekAttendanceAfter.every(a => a?.on_time)
+    const isAllLate = isWeekComplete && weekAttendanceAfter.every(a => !a?.on_time)
+
+    let bonusAdjustment = 0
+
+    if (!wasAllOnTime && isAllOnTime) {
+      bonusAdjustment += 5
+    } else if (wasAllOnTime && !isAllOnTime) {
+      bonusAdjustment -= 5
+    }
+
+    if (!wasAllLate && isAllLate) {
+      bonusAdjustment -= 5
+    } else if (wasAllLate && !isAllLate) {
+      bonusAdjustment += 5
+    }
+
+    if (bonusAdjustment !== 0) {
+      student.points = Math.max(0, student.points + bonusAdjustment)
+    }
+
+    await supabase
+      .from('students')
+      .update({ points: student.points })
+      .eq('id', studentId)
   } catch (err) {
     console.error('Error toggling attendance:', err)
-  }
-}
-
-const checkWeeklyBonus = async (studentId: string) => {
-  const student = students.value.find(s => s.id === studentId)
-  if (!student) return
-
-  const weekAttendance = weekDates.value.map(date => getAttendance(studentId, date))
-
-  if (weekAttendance.every(a => a !== undefined)) {
-    const allOnTime = weekAttendance.every(a => a?.on_time)
-    const allLate = weekAttendance.every(a => !a?.on_time)
-
-    if (allOnTime) {
-      await supabase
-        .from('students')
-        .update({ points: student.points + 5 })
-        .eq('id', studentId)
-      student.points += 5
-    } else if (allLate) {
-      await supabase
-        .from('students')
-        .update({ points: Math.max(0, student.points - 5) })
-        .eq('id', studentId)
-      student.points = Math.max(0, student.points - 5)
-    }
   }
 }
 
