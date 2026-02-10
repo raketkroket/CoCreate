@@ -3,6 +3,7 @@
     { "src": "package.json", "use": "@vercel/static-build" }
   ],
   "routes": [
+    { "src": "/(.*)\\.(js|css|map|png|jpg|jpeg|svg|ico|json|woff2?)$", "dest": "/$1" },
     { "src": "/(.*)", "dest": "/index.html" }
   ]
 }
