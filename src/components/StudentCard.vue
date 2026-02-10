@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import type { Student, Attendance, StudentReward } from '../composables/supabase'
+import type { Student, Attendance, StudentReward } from '../supabase'
 import RewardBadge from './RewardBadge.vue'
 
 const props = defineProps<{

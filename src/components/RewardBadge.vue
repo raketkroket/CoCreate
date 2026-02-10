@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { StudentReward } from '../composables/supabase'
+import type { StudentReward } from '../supabase'
 
 defineProps<{
   studentReward: StudentReward

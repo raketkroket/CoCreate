@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
-import { supabase } from '../composables/supabase'
-import type { Student, Attendance, Reward, StudentReward } from '../composables/supabase'
+import { supabase } from '../supabase'
+import type { Student, Attendance, Reward, StudentReward } from '../supabase'
 import { useAuth } from '../composables/useAuth'
 import StudentCard from './StudentCard.vue'
 import AddStudentModal from './AddStudentModal.vue'
