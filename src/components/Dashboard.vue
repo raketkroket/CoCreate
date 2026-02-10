@@ -20,6 +20,17 @@ const showRewardModal = ref(false)
 const selectedStudentId = ref<string | null>(null)
 const teacherName = ref('')
 const currentWeekOffset = ref(0)
+const loadingMessages = [
+  'Koffie halen...',
+  'Boeken sorteren...',
+  'Pennen tellen...',
+  'Stiften zoeken...',
+  'Klaslokaal opruimen...',
+  'Huiswerk nakijken...',
+  'Rooster checken...',
+  'Krijt verzamelen...'
+]
+const currentLoadingMessage = ref(loadingMessages[Math.floor(Math.random() * loadingMessages.length)])
 
 const getWeekDates = (weekOffset: number) => {
   const dates = []
@@ -295,6 +306,41 @@ const activeRewards = computed(() => {
   return studentRewards.value.filter(sr => !sr.redeemed).length
 })
 
+const weeklyStats = computed(() => {
+  if (students.value.length === 0) return null
+
+  const dayAttendance = weekDates.value.map((date, index) => {
+    const dayRecords = attendanceRecords.value.filter(a => a.date === date)
+    return {
+      day: dayNames[index],
+      count: dayRecords.length,
+      onTimeCount: dayRecords.filter(a => a.on_time).length
+    }
+  })
+
+  const bestDay = dayAttendance.reduce((max, day) =>
+    day.count > max.count ? day : max, dayAttendance[0]
+  )
+
+  const topStudent = students.value.reduce((max, student) =>
+    student.points > max.points ? student : max, students.value[0]
+  )
+
+  const perfectWeeks = students.value.filter(student => {
+    const weekAttendance = weekDates.value.map(date =>
+      attendanceRecords.value.find(a => a.student_id === student.id && a.date === date)
+    )
+    return weekAttendance.length === 5 && weekAttendance.every(a => a?.on_time)
+  }).length
+
+  return {
+    bestDay: bestDay.count > 0 ? `${bestDay.day} (${bestDay.count} van ${students.value.length})` : 'Nog geen data',
+    topStudent: topStudent.points > 0 ? `${topStudent.name} met ${topStudent.points} punten` : 'Nog geen punten',
+    perfectWeeks: perfectWeeks,
+    hasData: attendanceRecords.value.length > 0
+  }
+})
+
 const icons = {
   students: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>',
   attendance: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 11 12 14 22 4"></polyline><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path></svg>',
@@ -445,7 +491,7 @@ onMounted(async () => {
     <main class="dashboard-main">
       <div v-if="isLoading" class="loading">
         <div class="spinner"></div>
-        <p>Laden...</p>
+        <p>{{ currentLoadingMessage }}</p>
       </div>
 
       <div v-else class="content">
@@ -512,6 +558,38 @@ onMounted(async () => {
             :icon="icons.rewards"
             color="orange"
           />
+        </div>
+
+        <div v-if="students.length > 0 && weeklyStats?.hasData" class="weekly-highlights">
+          <h2 class="highlights-title">
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"></path>
+            </svg>
+            Deze Week Hoogtepunten
+          </h2>
+          <div class="highlights-grid">
+            <div class="highlight-card">
+              <div class="highlight-icon">🎯</div>
+              <div class="highlight-content">
+                <div class="highlight-label">Beste Dag</div>
+                <div class="highlight-value">{{ weeklyStats.bestDay }}</div>
+              </div>
+            </div>
+            <div class="highlight-card">
+              <div class="highlight-icon">👑</div>
+              <div class="highlight-content">
+                <div class="highlight-label">Meeste Punten</div>
+                <div class="highlight-value">{{ weeklyStats.topStudent }}</div>
+              </div>
+            </div>
+            <div class="highlight-card" v-if="weeklyStats.perfectWeeks > 0">
+              <div class="highlight-icon">🌟</div>
+              <div class="highlight-content">
+                <div class="highlight-label">Perfecte Weken</div>
+                <div class="highlight-value">{{ weeklyStats.perfectWeeks }} {{ weeklyStats.perfectWeeks === 1 ? 'leerling' : 'leerlingen' }}</div>
+              </div>
+            </div>
+          </div>
         </div>
 
         <div v-if="students.length === 0" class="empty-state">
@@ -715,6 +793,79 @@ h1 {
     opacity: 1;
     transform: translateY(0);
   }
+}
+
+.weekly-highlights {
+  background: linear-gradient(135deg, #fff7ed 0%, #ffedd5 100%);
+  border-radius: 16px;
+  padding: 1.5rem;
+  margin-bottom: 2rem;
+  border: 2px solid #fed7aa;
+  animation: fadeInUp 0.6s ease-out 0.2s backwards;
+}
+
+.highlights-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0 0 1rem 0;
+  font-size: 1.125rem;
+  font-weight: 700;
+  color: #9a3412;
+}
+
+.highlights-title svg {
+  fill: #fb923c;
+  stroke: #ea580c;
+}
+
+.highlights-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1rem;
+}
+
+.highlight-card {
+  background: white;
+  border-radius: 12px;
+  padding: 1rem;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+  transition: transform 0.2s ease;
+}
+
+.highlight-card:hover {
+  transform: translateY(-2px);
+}
+
+.highlight-icon {
+  font-size: 1.75rem;
+  flex-shrink: 0;
+}
+
+.highlight-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.highlight-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #9a3412;
+  margin-bottom: 0.25rem;
+}
+
+.highlight-value {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #0f172a;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .add-btn {
@@ -992,6 +1143,10 @@ h1 {
   .stats-grid {
     grid-template-columns: repeat(2, 1fr);
     gap: 1rem;
+  }
+
+  .highlights-grid {
+    grid-template-columns: 1fr;
   }
 }
 
