@@ -151,19 +151,21 @@ const toggleAttendance = async (studentId: string, date: string) => {
     if (existing) {
       if (existing.on_time) {
         // Groen → Geel (on time → te laat)
-        await supabase
+        const { error } = await supabase
           .from('attendance')
           .update({ on_time: false })
           .eq('id', existing.id)
+        if (error) throw error
 
         existing.on_time = false
-        pointsDelta = -2   // +1 weghalen + -1 straf erbij = -2
+        pointsDelta = -2   // +1 weghalen + -1 straf erbij
       } else {
         // Geel → Grijs (verwijder record)
-        await supabase
+        const { error } = await supabase
           .from('attendance')
           .delete()
           .eq('id', existing.id)
+        if (error) throw error
 
         attendanceRecords.value = attendanceRecords.value.filter(a => a.id !== existing.id)
         pointsDelta = +1   // straf ongedaan maken
@@ -182,25 +184,7 @@ const toggleAttendance = async (studentId: string, date: string) => {
       pointsDelta = +1
     }
 
-    // punten updaten
-    const newPoints = Math.max(0, student.points + pointsDelta)
-    await supabase
-      .from('students')
-      .update({ points: newPoints })
-      .eq('id', studentId)
-
-    student.points = newPoints
-
-    // weekbonus checken
-    await updateWeeklyBonus(studentId, oldWeekState)
-
-  } catch (err) {
-    console.error('fout bij toggle:', err)
-    showError('Kon aanwezigheid niet aanpassen 😢')
-  }
-}
-
-    // Update student points
+    // Punten updaten
     const newPoints = Math.max(0, student.points + pointsDelta)
     const { error: studentError } = await supabase
       .from('students')
@@ -210,12 +194,12 @@ const toggleAttendance = async (studentId: string, date: string) => {
 
     student.points = newPoints
 
-    // Update weekly bonus if needed
+    // Weekbonus checken
     await updateWeeklyBonus(studentId, oldWeekState)
 
   } catch (err) {
-    console.error('Error toggling attendance:', err)
-    showError('Kon aanwezigheid niet bijwerken')
+    console.error('fout bij toggle:', err)
+    showError('Kon aanwezigheid niet aanpassen 😢')
   }
 }
 
