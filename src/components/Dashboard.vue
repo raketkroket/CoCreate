@@ -196,29 +196,7 @@ const toggleAttendance = async (studentId: string, date: string) => {
   }
 }
 
-const checkWeeklyBonus = async (studentId: string) => {
-  const student = students.value.find(s => s.id === studentId)
-  if (!student) return
 
-  const weekAttendance = weekDates.value.map(date => getAttendance(studentId, date))
-
-  // Alleen bonus als ALLE dagen bestaan én allemaal groen zijn
-  if (weekAttendance.every(a => a !== undefined)) {
-    const allOnTime = weekAttendance.every(a => a?.on_time === true)
-
-    if (allOnTime) {
-      const newPoints = student.points + 5
-      await supabase
-        .from('students')
-        .update({ points: newPoints })
-        .eq('id', studentId)
-      student.points = newPoints
-      console.log('Perfecte week! +5')
-      // Hier kun je eventueel confetti toevoegen als je dat nog hebt
-    }
-    // GEEN else → geen -5 straf, ook niet bij allLate
-  }
-}
 const getWeekBonusState = (studentId: string): 'all_on_time' | 'all_late' | 'mixed' | 'incomplete' => {
   const weekAttendance = weekDates.value.map(date => getAttendance(studentId, date))
   console.log('getWeekBonusState - Week dates:', weekDates.value)
@@ -244,41 +222,7 @@ const getWeekBonusState = (studentId: string): 'all_on_time' | 'all_late' | 'mix
   return 'mixed'
 }
 
-const updateWeeklyBonus = async (studentId: string, oldState: string) => {
-  const student = students.value.find(s => s.id === studentId)
-  if (!student) return
 
-  const newState = getWeekBonusState(studentId)
-  console.log('updateWeeklyBonus - Old state:', oldState, '→ New state:', newState)
-
-  if (oldState === newState) return
-
-  let pointsAdjustment = 0
-
-  if (oldState === 'all_on_time') {
-    pointsAdjustment -= 5
-  } else if (oldState === 'all_late') {
-    pointsAdjustment += 5
-  }
-
-  if (newState === 'all_on_time') {
-    pointsAdjustment += 5
-    console.log('🎉 All days on time! Triggering confetti!')
-    celebrate()
-  } else if (newState === 'all_late') {
-    pointsAdjustment -= 5
-  }
-
-  if (pointsAdjustment !== 0) {
-    const newPoints = Math.max(0, student.points + pointsAdjustment)
-    await supabase
-      .from('students')
-      .update({ points: newPoints })
-      .eq('id', studentId)
-    student.points = newPoints
-    console.log('Week bonus applied. Points adjustment:', pointsAdjustment, '→ New points:', newPoints)
-  }
-}
 
 const addStudent = async (name: string) => {
   console.log('addStudent called', { name, user: user.value })
