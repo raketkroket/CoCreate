@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
-import { useRouter } from 'vue-router'
 import { supabase } from '../composables/supabase'
 import type { Student, Attendance } from '../composables/supabase'
 import { useAuth } from '../composables/useAuth'
@@ -9,7 +8,6 @@ import StudentCard from './StudentCard.vue'
 import AddStudentModal from './AddStudentModal.vue'
 import NavMenu from './NavMenu.vue'
 
-const router = useRouter()
 const { user, signOut } = useAuth()
 const { celebrate } = useConfetti()
 
@@ -21,12 +19,6 @@ const showAddModal = ref(false)
 const teacherName = ref('')
 const currentWeekOffset = ref(0)
 const processingAttendance = ref<Set<string>>(new Set())
-
-const settings = ref({
-  points_on_time: 2,
-  points_late: -2,
-  points_absent: -5
-})
 
 const getWeekDates = (weekOffset: number) => {
   const dates = []
@@ -87,22 +79,6 @@ const loadTeacherInfo = async () => {
   if (data) teacherName.value = data.username
 }
 
-const loadSettings = async () => {
-  if (!user.value) return
-  const { data } = await supabase
-    .from('teacher_settings')
-    .select('points_on_time, points_late, points_absent')
-    .eq('user_id', user.value.id)
-    .maybeSingle()
-  if (data) {
-    settings.value = {
-      points_on_time: data.points_on_time,
-      points_late: data.points_late,
-      points_absent: data.points_absent
-    }
-  }
-}
-
 const loadStudents = async () => {
   if (!user.value) return
   const { data } = await supabase
@@ -161,7 +137,7 @@ const toggleAttendance = async (studentId: string, date: string) => {
     if (existing) {
       if (existing.on_time) {
         if (hadBonus) {
-          // Green → Grey (skip yellow when breaking perfect week): remove on_time points and lose bonus
+          // Green → Grey (skip yellow when breaking perfect week): +1 to 0 = -1 point, also lose bonus -5
           await supabase
             .from('weekly_bonuses')
             .delete()
@@ -175,25 +151,23 @@ const toggleAttendance = async (studentId: string, date: string) => {
             .from('attendance')
             .delete()
             .eq('id', existing.id)
-          const pointsChange = -settings.value.points_on_time - 5
           const { data: updatedStudent } = await supabase
             .from('students')
-            .update({ points: student.points + pointsChange })
+            .update({ points: student.points - 6 })
             .eq('id', studentId)
             .select('points')
             .single()
           attendanceRecords.value = attendanceRecords.value.filter(a => a.id !== existing.id)
           if (updatedStudent) student.points = updatedStudent.points
         } else {
-          // Green → Yellow: change from on_time to late
+          // Green → Yellow: +1 to -1 = -2 points
           await supabase
             .from('attendance')
             .update({ on_time: false })
             .eq('id', existing.id)
-          const pointsChange = -settings.value.points_on_time + settings.value.points_late
           const { data: updatedStudent } = await supabase
             .from('students')
-            .update({ points: student.points + pointsChange })
+            .update({ points: student.points - 2 })
             .eq('id', studentId)
             .select('points')
             .single()
@@ -201,15 +175,14 @@ const toggleAttendance = async (studentId: string, date: string) => {
           if (updatedStudent) student.points = updatedStudent.points
         }
       } else {
-        // Yellow → Grey: remove late penalty
+        // Yellow → Grey: -1 to 0 = +1 point
         await supabase
           .from('attendance')
           .delete()
           .eq('id', existing.id)
-        const pointsChange = -settings.value.points_late
         const { data: updatedStudent } = await supabase
           .from('students')
-          .update({ points: student.points + pointsChange })
+          .update({ points: student.points + 1 })
           .eq('id', studentId)
           .select('points')
           .single()
@@ -217,7 +190,7 @@ const toggleAttendance = async (studentId: string, date: string) => {
         if (updatedStudent) student.points = updatedStudent.points
       }
     } else {
-      // Grey → Green: award on_time points
+      // Grey → Green: 0 to +1 = +1 point
       const { data, error } = await supabase
         .from('attendance')
         .insert({
@@ -235,7 +208,7 @@ const toggleAttendance = async (studentId: string, date: string) => {
 
       const { data: updatedStudent } = await supabase
         .from('students')
-        .update({ points: student.points + settings.value.points_on_time })
+        .update({ points: student.points + 1 })
         .eq('id', studentId)
         .select('points')
         .single()
@@ -333,7 +306,6 @@ const deleteStudent = async (studentId: string) => {
 const handleSignOut = async () => {
   try {
     await signOut()
-    router.push('/login')
   } catch (err) {
     console.error('Error signing out:', err)
   }
@@ -353,7 +325,6 @@ const goToCurrentWeek = async () => {
 
 onMounted(async () => {
   isLoading.value = true
-  await loadSettings()
   await loadTeacherInfo()
   await loadStudents()
   await loadAttendance()
