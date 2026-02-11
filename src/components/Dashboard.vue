@@ -145,59 +145,78 @@ const toggleAttendance = async (studentId: string, date: string) => {
   if (!student) return
 
   try {
-    const oldWeekState = getWeekBonusState(studentId)
     let pointsDelta = 0
 
     if (existing) {
       if (existing.on_time) {
         // Groen → Geel
-        const { error } = await supabase
+        await supabase
           .from('attendance')
           .update({ on_time: false })
           .eq('id', existing.id)
-        if (error) throw error
-
         existing.on_time = false
-        pointsDelta = -2
+        pointsDelta = -2  // +1 weghalen + -1 straf
       } else {
-        // Geel → Grijs
-        const { error } = await supabase
+        // Geel → Grijs (verwijderen)
+        await supabase
           .from('attendance')
           .delete()
           .eq('id', existing.id)
-        if (error) throw error
-
         attendanceRecords.value = attendanceRecords.value.filter(a => a.id !== existing.id)
-        pointsDelta = +1
+        pointsDelta = +1  // alleen de -1 straf ongedaan maken
       }
     } else {
       // Grijs → Groen
-      const { data, error } = await supabase
+      const { data } = await supabase
         .from('attendance')
-        .insert({ student_id: studentId, date, on_time: true })
+        .insert({
+          student_id: studentId,
+          date,
+          on_time: true
+        })
         .select()
         .single()
-
-      if (error) throw error
       if (data) attendanceRecords.value.push(data)
-
       pointsDelta = +1
     }
 
+    // Punten updaten
     const newPoints = Math.max(0, student.points + pointsDelta)
-    const { error: studentError } = await supabase
+    await supabase
       .from('students')
       .update({ points: newPoints })
       .eq('id', studentId)
-    if (studentError) throw studentError
-
     student.points = newPoints
 
-    await updateWeeklyBonus(studentId, oldWeekState)
+    // Weekbonus checken
+    await checkWeeklyBonus(studentId)
 
   } catch (err) {
-    console.error('fout bij toggle:', err)
-    showError('Kon aanwezigheid niet aanpassen 😢')
+    console.error('Error toggling attendance:', err)
+  }
+}
+
+const checkWeeklyBonus = async (studentId: string) => {
+  const student = students.value.find(s => s.id === studentId)
+  if (!student) return
+
+  const weekAttendance = weekDates.value.map(date => getAttendance(studentId, date))
+
+  // Alleen bonus als ALLE dagen bestaan én allemaal groen zijn
+  if (weekAttendance.every(a => a !== undefined)) {
+    const allOnTime = weekAttendance.every(a => a?.on_time === true)
+
+    if (allOnTime) {
+      const newPoints = student.points + 5
+      await supabase
+        .from('students')
+        .update({ points: newPoints })
+        .eq('id', studentId)
+      student.points = newPoints
+      console.log('Perfecte week! +5')
+      // Hier kun je eventueel confetti toevoegen als je dat nog hebt
+    }
+    // GEEN else → geen -5 straf, ook niet bij allLate
   }
 }
 const getWeekBonusState = (studentId: string): 'all_on_time' | 'all_late' | 'mixed' | 'incomplete' => {
