@@ -44,9 +44,12 @@ const pointsProgress = computed(() => {
 })
 
 const gridColumns = computed(() => props.weekDates.length)
+
 </script>
 
 <template>
+
+  
   <div class="student-row">
     <div class="student-info">
       <div class="avatar-container">

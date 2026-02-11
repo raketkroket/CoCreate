@@ -2,11 +2,12 @@
 import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { supabase } from '../composables/supabase'
-import type { Student, Attendance } from '../composables/supabase'
+import type { Student, Attendance, Reward, StudentReward } from '../composables/supabase'
 import { useAuth } from '../composables/useAuth'
 import { useConfetti } from '../composables/useConfetti'
 import StudentCard from './StudentCard.vue'
 import AddStudentModal from './AddStudentModal.vue'
+import AssignRewardModal from './AssignRewardModal.vue'
 import NavMenu from './NavMenu.vue'
 
 const router = useRouter()
@@ -16,8 +17,12 @@ const { celebrate } = useConfetti()
 const students = ref<Student[]>([])
 const attendanceRecords = ref<Attendance[]>([])
 const weeklyBonuses = ref<{ student_id: string; week_start_date: string }[]>([])
+const rewards = ref<Reward[]>([])
+const studentRewards = ref<StudentReward[]>([])
 const isLoading = ref(true)
 const showAddModal = ref(false)
+const showRewardModal = ref(false)
+const selectedStudentId = ref<string | null>(null)
 const teacherName = ref('')
 const currentWeekOffset = ref(0)
 const processingAttendance = ref<Set<string>>(new Set())
@@ -132,12 +137,34 @@ const loadWeeklyBonuses = async () => {
   if (data) weeklyBonuses.value = data
 }
 
-const getAttendance = (studentId: string, date: string) => {
-  return attendanceRecords.value.find(
-    (a: Attendance) => a.student_id === studentId && a.date === date
-  )
+const loadRewards = async () => {
+  if (!user.value) return
+  const { data } = await supabase
+    .from('rewards')
+    .select('*')
+    .eq('teacher_id', user.value.id)
+    .order('points_required', { ascending: true })
+  if (data) rewards.value = data
 }
 
+const loadStudentRewards = async () => {
+  if (!user.value) return
+  const { data } = await supabase
+    .from('student_rewards')
+    .select('*, reward:rewards(*)')
+    .order('assigned_at', { ascending: false })
+  if (data) studentRewards.value = data
+}
+
+const getStudentRewards = (studentId: string) => {
+  return studentRewards.value.filter(sr => sr.student_id === studentId)
+}
+
+const getAttendance = (studentId: string, date: string) => {
+  return attendanceRecords.value.find(
+    a => a.student_id === studentId && a.date === date
+  )
+}
 
 const toggleAttendance = async (studentId: string, date: string) => {
   const lockKey = `${studentId}-${date}`
@@ -161,7 +188,6 @@ const toggleAttendance = async (studentId: string, date: string) => {
     if (existing) {
       if (existing.on_time) {
         if (hadBonus) {
-          // Green → Grey (skip yellow when breaking perfect week): remove on_time points and lose bonus
           await supabase
             .from('weekly_bonuses')
             .delete()
@@ -185,7 +211,6 @@ const toggleAttendance = async (studentId: string, date: string) => {
           attendanceRecords.value = attendanceRecords.value.filter(a => a.id !== existing.id)
           if (updatedStudent) student.points = updatedStudent.points
         } else {
-          // Green → Yellow: change from on_time to late
           await supabase
             .from('attendance')
             .update({ on_time: false })
@@ -201,7 +226,6 @@ const toggleAttendance = async (studentId: string, date: string) => {
           if (updatedStudent) student.points = updatedStudent.points
         }
       } else {
-        // Yellow → Grey: remove late penalty
         await supabase
           .from('attendance')
           .delete()
@@ -217,7 +241,6 @@ const toggleAttendance = async (studentId: string, date: string) => {
         if (updatedStudent) student.points = updatedStudent.points
       }
     } else {
-      // Grey → Green: award on_time points
       const { data, error } = await supabase
         .from('attendance')
         .insert({
@@ -351,6 +374,77 @@ const goToCurrentWeek = async () => {
   await loadWeeklyBonuses()
 }
 
+// Reward modal functions
+const openRewardModal = (studentId: string) => {
+  selectedStudentId.value = studentId
+  showRewardModal.value = true
+}
+
+const closeRewardModal = () => {
+  showRewardModal.value = false
+  selectedStudentId.value = null
+}
+
+const handleAssignReward = async (rewardId: string) => {
+  if (!selectedStudentId.value) return
+  try {
+    const { error } = await supabase
+      .from('student_rewards')
+      .insert({
+        student_id: selectedStudentId.value,
+        reward_id: rewardId,
+        redeemed: false
+      })
+    if (error) throw error
+    await loadStudentRewards()
+    console.log('Reward assigned successfully')
+  } catch (err) {
+    console.error('Error assigning reward:', err)
+  } finally {
+    closeRewardModal()
+  }
+}
+
+const handleCreateAndAssign = async (
+  name: string,
+  description: string,
+  pointsRequired: number,
+  icon: string
+) => {
+  if (!selectedStudentId.value || !user.value) return
+  try {
+    const { data: newReward, error: createError } = await supabase
+      .from('rewards')
+      .insert({
+        teacher_id: user.value.id,
+        name,
+        description,
+        points_required: pointsRequired,
+        icon
+      })
+      .select()
+      .single()
+    if (createError) throw createError
+
+    const { error: assignError } = await supabase
+      .from('student_rewards')
+      .insert({
+        student_id: selectedStudentId.value,
+        reward_id: newReward.id,
+        redeemed: false
+      })
+    if (assignError) throw assignError
+
+    await loadRewards()
+    await loadStudentRewards()
+    console.log('New reward created and assigned')
+  } catch (err) {
+    console.error('Error creating/assigning reward:', err)
+  } finally {
+    closeRewardModal()
+  }
+}
+
 onMounted(async () => {
   isLoading.value = true
   await loadSettings()
@@ -358,11 +452,13 @@ onMounted(async () => {
   await loadStudents()
   await loadAttendance()
   await loadWeeklyBonuses()
+  await loadRewards()
+  await loadStudentRewards()
   isLoading.value = false
 })
 </script>
-
 <template>
+  
   <div class="dashboard">
     <header class="dashboard-header">
       <div class="header-content">
@@ -431,6 +527,22 @@ onMounted(async () => {
               Vandaag
             </button>
 
+<StudentCard
+  v-for="student in students"
+  :key="student.id"
+  :student="student"
+  :week-dates="getStudentWeekDates(student)"
+  :day-names="getStudentDayNames(student)"
+  :student-rewards="getStudentRewards(student.id)"
+  :get-attendance="getAttendance"
+  @toggle-attendance="toggleAttendance"
+  @delete-student="deleteStudent"
+  @assign-reward="openRewardModal"   
+
+/>
+
+
+            
             <button @click="changeWeek(1)" class="nav-btn" title="Volgende week">
               <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <polyline points="9 18 15 12 9 6"></polyline>
@@ -480,6 +592,8 @@ onMounted(async () => {
             :get-attendance="getAttendance"
             @toggle-attendance="toggleAttendance"
             @delete-student="deleteStudent"
+
+            
           />
         </div>
       </div>
@@ -489,7 +603,32 @@ onMounted(async () => {
       v-if="showAddModal"
       @add="addStudent"
       @close="showAddModal = false"
+
+      
     />
+
+    <StudentCard
+  v-for="student in students"
+  :key="student.id"
+  :student="student"
+  :week-dates="getStudentWeekDates(student)"
+  :day-names="getStudentDayNames(student)"
+  :student-rewards="[]"  
+  :get-attendance="getAttendance"
+  @toggle-attendance="toggleAttendance"
+  @delete-student="deleteStudent"
+  @assign-reward="openRewardModal" 
+/>
+    <div>
+      <AssignRewardModal
+  v-if="showRewardModal && selectedStudentId"
+  :student="students.find(s => s.id === selectedStudentId)"
+  :available-rewards="rewards"
+  @assign="handleAssignReward"
+  @create-and-assign="handleCreateAndAssign"
+  @close="closeRewardModal"
+/>
+    
   </div>
 </template>
 
