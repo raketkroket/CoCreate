@@ -1,32 +1,23 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
-import { useRouter } from 'vue-router'
 import { supabase } from '../composables/supabase'
-import type { Student, Attendance, Reward, StudentReward } from '../composables/supabase'
+import type { Student, Attendance } from '../composables/supabase'
 import { useAuth } from '../composables/useAuth'
-import { useToast } from '../composables/useToast'
 import { useConfetti } from '../composables/useConfetti'
 import StudentCard from './StudentCard.vue'
 import AddStudentModal from './AddStudentModal.vue'
-import AssignRewardModal from './AssignRewardModal.vue'
-import StatCard from './StatCard.vue'
-
-const router = useRouter()
 
 const { user, signOut } = useAuth()
-const { error: showError, success: showSuccess } = useToast()
 const { celebrate } = useConfetti()
 
 const students = ref<Student[]>([])
 const attendanceRecords = ref<Attendance[]>([])
-const rewards = ref<Reward[]>([])
-const studentRewards = ref<StudentReward[]>([])
+const weeklyBonuses = ref<{ student_id: string; week_start_date: string }[]>([])
 const isLoading = ref(true)
 const showAddModal = ref(false)
-const showRewardModal = ref(false)
-const selectedStudentId = ref<string | null>(null)
 const teacherName = ref('')
 const currentWeekOffset = ref(0)
+const processingAttendance = ref<Set<string>>(new Set())
 
 const getWeekDates = (weekOffset: number) => {
   const dates = []
@@ -61,6 +52,22 @@ const weekDateRange = computed(() => {
 
 const dayNames = ['Ma', 'Di', 'Wo', 'Do', 'Vr']
 
+const getStudentWeekDates = (student: Student) => {
+  const noFridayStudents = ['Hans', 'Billy', 'Niek']
+  if (noFridayStudents.includes(student.name)) {
+    return weekDates.value.slice(0, 4)
+  }
+  return weekDates.value
+}
+
+const getStudentDayNames = (student: Student) => {
+  const noFridayStudents = ['Hans', 'Billy', 'Niek']
+  if (noFridayStudents.includes(student.name)) {
+    return dayNames.slice(0, 4)
+  }
+  return dayNames
+}
+
 const loadTeacherInfo = async () => {
   if (!user.value) return
   const { data } = await supabase
@@ -90,52 +97,132 @@ const loadAttendance = async () => {
   if (data) attendanceRecords.value = data
 }
 
+const loadWeeklyBonuses = async () => {
+  if (!user.value) return
+  const weekStart = weekDates.value[0]
+  const { data } = await supabase
+    .from('weekly_bonuses')
+    .select('student_id, week_start_date')
+    .eq('week_start_date', weekStart)
+  if (data) weeklyBonuses.value = data
+}
+
 const getAttendance = (studentId: string, date: string) => {
   return attendanceRecords.value.find(
-    a => a.student_id === studentId && a.date === date
+    (a: Attendance) => a.student_id === studentId && a.date === date
   )
 }
 
+
 const toggleAttendance = async (studentId: string, date: string) => {
+  const lockKey = `${studentId}-${date}`
+  if (processingAttendance.value.has(lockKey)) return
+
+  processingAttendance.value.add(lockKey)
+
   const existing = getAttendance(studentId, date)
   const student = students.value.find(s => s.id === studentId)
-  if (!student) return
+  if (!student) {
+    processingAttendance.value.delete(lockKey)
+    return
+  }
 
   try {
-    let pointsDelta = 0
+    const weekStart = weekDates.value[0]
+    const hadBonus = weeklyBonuses.value.some(
+      b => b.student_id === studentId && b.week_start_date === weekStart
+    )
 
     if (existing) {
       if (existing.on_time) {
-        // Groen → Geel (on time → late)
-        await supabase.from('attendance').update({ on_time: false }).eq('id', existing.id)
-        existing.on_time = false
-        pointsDelta = -2  // remove +1 and add -1 penalty
+        if (hadBonus) {
+          // Green → Grey (skip yellow when breaking perfect week): +1 to 0 = -1 point, also lose bonus -5
+          await supabase
+            .from('weekly_bonuses')
+            .delete()
+            .eq('student_id', studentId)
+            .eq('week_start_date', weekStart)
+          weeklyBonuses.value = weeklyBonuses.value.filter(
+            b => !(b.student_id === studentId && b.week_start_date === weekStart)
+          )
+
+          await supabase
+            .from('attendance')
+            .delete()
+            .eq('id', existing.id)
+          const { data: updatedStudent } = await supabase
+            .from('students')
+            .update({ points: student.points - 6 })
+            .eq('id', studentId)
+            .select('points')
+            .single()
+          attendanceRecords.value = attendanceRecords.value.filter(a => a.id !== existing.id)
+          if (updatedStudent) student.points = updatedStudent.points
+        } else {
+          // Green → Yellow: +1 to -1 = -2 points
+          await supabase
+            .from('attendance')
+            .update({ on_time: false })
+            .eq('id', existing.id)
+          const { data: updatedStudent } = await supabase
+            .from('students')
+            .update({ points: student.points - 2 })
+            .eq('id', studentId)
+            .select('points')
+            .single()
+          existing.on_time = false
+          if (updatedStudent) student.points = updatedStudent.points
+        }
       } else {
-        // Geel → Grijs (delete record)
-        await supabase.from('attendance').delete().eq('id', existing.id)
+        // Yellow → Grey: -1 to 0 = +1 point
+        await supabase
+          .from('attendance')
+          .delete()
+          .eq('id', existing.id)
+        const { data: updatedStudent } = await supabase
+          .from('students')
+          .update({ points: student.points + 1 })
+          .eq('id', studentId)
+          .select('points')
+          .single()
         attendanceRecords.value = attendanceRecords.value.filter(a => a.id !== existing.id)
-        pointsDelta = +1  // undo the -1 penalty
+        if (updatedStudent) student.points = updatedStudent.points
       }
     } else {
-      // Grijs → Groen (add on time)
-      const { data } = await supabase
+      // Grey → Green: 0 to +1 = +1 point
+      const { data, error } = await supabase
         .from('attendance')
-        .insert({ student_id: studentId, date, on_time: true })
+        .insert({
+          student_id: studentId,
+          date,
+          on_time: true
+        })
         .select()
         .single()
-      if (data) attendanceRecords.value.push(data)
-      pointsDelta = +1
+
+      if (error) {
+        console.error('Attendance insert failed:', error)
+        return
+      }
+
+      const { data: updatedStudent } = await supabase
+        .from('students')
+        .update({ points: student.points + 1 })
+        .eq('id', studentId)
+        .select('points')
+        .single()
+
+      if (data) {
+        attendanceRecords.value.push(data)
+      }
+      if (updatedStudent) student.points = updatedStudent.points
     }
 
-    const newPoints = Math.max(0, student.points + pointsDelta)
-    await supabase.from('students').update({ points: newPoints }).eq('id', studentId)
-    student.points = newPoints
-
-    // Give week bonus if applicable
     await checkWeeklyBonus(studentId)
   } catch (err) {
     console.error('Error toggling attendance:', err)
-    showError('Kon aanwezigheid niet bijwerken')
+  } finally {
+    processingAttendance.value.delete(lockKey)
   }
 }
 
@@ -143,210 +230,96 @@ const checkWeeklyBonus = async (studentId: string) => {
   const student = students.value.find(s => s.id === studentId)
   if (!student) return
 
-  const weekAttendance = weekDates.value.map(date => getAttendance(studentId, date))
+  const weekStart = weekDates.value[0]
+  const alreadyAwarded = weeklyBonuses.value.some(
+    b => b.student_id === studentId && b.week_start_date === weekStart
+  )
 
-  // Only give bonus if every day has a record and all are on time
+  if (alreadyAwarded) return
+
+  const studentWeekDates = getStudentWeekDates(student)
+  const weekAttendance = studentWeekDates.map(date => getAttendance(studentId, date))
+
   if (weekAttendance.every(a => a !== undefined)) {
     const allOnTime = weekAttendance.every(a => a?.on_time === true)
 
     if (allOnTime) {
       const newPoints = student.points + 5
-      await supabase.from('students').update({ points: newPoints }).eq('id', studentId)
+      await supabase
+        .from('students')
+        .update({ points: newPoints })
+        .eq('id', studentId)
+
+      await supabase
+        .from('weekly_bonuses')
+        .insert({
+          student_id: studentId,
+          week_start_date: weekStart
+        })
+
+      weeklyBonuses.value.push({ student_id: studentId, week_start_date: weekStart })
       student.points = newPoints
       celebrate()
-      showSuccess('Perfecte week! +5 punten 🎉')
+      console.log('Perfecte week! +5 punten en confetti 🎉')
     }
-    // No penalty if not perfect — no -5 anywhere
   }
 }
 
 const addStudent = async (name: string) => {
-  if (!user.value) {
-    showError('Je moet ingelogd zijn')
-    return
-  }
+  if (!user.value) return
   try {
     const { data } = await supabase
       .from('students')
-      .insert({ teacher_id: user.value.id, name, points: 0 })
+      .insert({
+        teacher_id: user.value.id,
+        name,
+        points: 0
+      })
       .select()
       .single()
     if (data) {
       students.value.push(data)
       showAddModal.value = false
-      showSuccess('Leerling toegevoegd')
     }
   } catch (err) {
     console.error('Error adding student:', err)
-    showError('Kon leerling niet toevoegen')
   }
 }
 
 const deleteStudent = async (studentId: string) => {
-  if (!confirm('Weet je zeker dat je deze leerling wilt verwijderen?')) return
+  if (!confirm('Weet je zeker dat je deze leerling wilt verwijderen?')) {
+    return
+  }
   try {
-    await supabase.from('students').delete().eq('id', studentId)
+    await supabase
+      .from('students')
+      .delete()
+      .eq('id', studentId)
     students.value = students.value.filter(s => s.id !== studentId)
     attendanceRecords.value = attendanceRecords.value.filter(a => a.student_id !== studentId)
-    showSuccess('Leerling verwijderd')
   } catch (err) {
     console.error('Error deleting student:', err)
-    showError('Kon leerling niet verwijderen')
   }
 }
 
 const handleSignOut = async () => {
   try {
     await signOut()
-    router.push('/login')
   } catch (err) {
     console.error('Error signing out:', err)
-    showError('Uitloggen mislukt')
   }
 }
 
 const changeWeek = async (offset: number) => {
   currentWeekOffset.value += offset
   await loadAttendance()
+  await loadWeeklyBonuses()
 }
 
 const goToCurrentWeek = async () => {
   currentWeekOffset.value = 0
   await loadAttendance()
-}
-
-const loadRewards = async () => {
-  if (!user.value) return
-  const { data } = await supabase
-    .from('rewards')
-    .select('*')
-    .eq('teacher_id', user.value.id)
-    .order('points_required', { ascending: true })
-  if (data) rewards.value = data
-}
-
-const loadStudentRewards = async () => {
-  if (!user.value) return
-  const { data } = await supabase
-    .from('student_rewards')
-    .select('*, reward:rewards(*)')
-    .order('assigned_at', { ascending: false })
-  if (data) studentRewards.value = data
-}
-
-const getStudentRewards = (studentId: string) => {
-  return studentRewards.value.filter(sr => sr.student_id === studentId)
-}
-
-const selectedStudent = computed(() => {
-  return students.value.find(s => s.id === selectedStudentId.value)
-})
-
-const totalStudents = computed(() => students.value.length)
-
-const attendanceRate = computed(() => {
-  if (students.value.length === 0 || weekDates.value.length === 0) return '0%'
-  const totalPossible = students.value.length * weekDates.value.length
-  const totalPresent = attendanceRecords.value.length
-  if (totalPossible === 0) return '0%'
-  const rate = (totalPresent / totalPossible) * 100
-  return `${Math.round(rate)}%`
-})
-
-const totalPoints = computed(() => {
-  return students.value.reduce((sum, s) => sum + s.points, 0)
-})
-
-const activeRewards = computed(() => {
-  return studentRewards.value.filter(sr => !sr.redeemed).length
-})
-
-const icons = {
-  students: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>',
-  attendance: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 11 12 14 22 4"></polyline><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path></svg>',
-  points: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>',
-  rewards: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 12 20 22 4 22 4 12"></polyline><rect x="2" y="7" width="20" height="5"></rect><line x1="12" y1="22" x2="12" y2="7"></line><path d="M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7z"></path><path d="M12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z"></path></svg>'
-}
-
-const openRewardModal = (studentId: string) => {
-  selectedStudentId.value = studentId
-  showRewardModal.value = true
-}
-
-const assignReward = async (rewardId: string) => {
-  if (!selectedStudentId.value) return
-  try {
-    const { data } = await supabase
-      .from('student_rewards')
-      .insert({ student_id: selectedStudentId.value, reward_id: rewardId, redeemed: false })
-      .select('*, reward:rewards(*)')
-      .single()
-    if (data) {
-      studentRewards.value.push(data)
-      showRewardModal.value = false
-      selectedStudentId.value = null
-      showSuccess('Beloning toegekend')
-    }
-  } catch (err) {
-    console.error('Error assigning reward:', err)
-    showError('Kon beloning niet toekennen')
-  }
-}
-
-const createAndAssignReward = async (
-  name: string,
-  description: string,
-  pointsRequired: number,
-  icon: string
-) => {
-  if (!user.value || !selectedStudentId.value) return
-  try {
-    const { data: rewardData } = await supabase
-      .from('rewards')
-      .insert({ teacher_id: user.value.id, name, description, points_required: pointsRequired, icon })
-      .select()
-      .single()
-    if (rewardData) {
-      rewards.value.push(rewardData)
-      await assignReward(rewardData.id)
-    }
-  } catch (err) {
-    console.error('Error creating reward:', err)
-    showError('Kon beloning niet aanmaken')
-  }
-}
-
-const toggleRewardRedeemed = async (studentRewardId: string) => {
-  const studentReward = studentRewards.value.find(sr => sr.id === studentRewardId)
-  if (!studentReward) return
-  try {
-    const newRedeemed = !studentReward.redeemed
-    await supabase
-      .from('student_rewards')
-      .update({
-        redeemed: newRedeemed,
-        redeemed_at: newRedeemed ? new Date().toISOString() : null
-      })
-      .eq('id', studentRewardId)
-    studentReward.redeemed = newRedeemed
-    studentReward.redeemed_at = newRedeemed ? new Date().toISOString() : null
-    showSuccess(newRedeemed ? 'Beloning verzilverd' : 'Beloning hersteld')
-  } catch (err) {
-    console.error('Error toggling reward:', err)
-    showError('Kon beloning status niet wijzigen')
-  }
-}
-
-const removeReward = async (studentRewardId: string) => {
-  if (!confirm('Weet je zeker dat je deze beloning wilt verwijderen?')) return
-  try {
-    await supabase.from('student_rewards').delete().eq('id', studentRewardId)
-    studentRewards.value = studentRewards.value.filter(sr => sr.id !== studentRewardId)
-    showSuccess('Beloning verwijderd')
-  } catch (err) {
-    console.error('Error removing reward:', err)
-    showError('Kon beloning niet verwijderen')
-  }
+  await loadWeeklyBonuses()
 }
 
 onMounted(async () => {
@@ -354,8 +327,7 @@ onMounted(async () => {
   await loadTeacherInfo()
   await loadStudents()
   await loadAttendance()
-  await loadRewards()
-  await loadStudentRewards()
+  await loadWeeklyBonuses()
   isLoading.value = false
 })
 </script>
@@ -434,33 +406,6 @@ onMounted(async () => {
           </div>
         </div>
 
-        <div v-if="students.length > 0" class="stats-grid">
-          <StatCard
-            title="Totaal Leerlingen"
-            :value="totalStudents"
-            :icon="icons.students"
-            color="blue"
-          />
-          <StatCard
-            title="Aanwezigheid"
-            :value="attendanceRate"
-            :icon="icons.attendance"
-            color="green"
-          />
-          <StatCard
-            title="Totaal Punten"
-            :value="totalPoints"
-            :icon="icons.points"
-            color="purple"
-          />
-          <StatCard
-            title="Actieve Beloningen"
-            :value="activeRewards"
-            :icon="icons.rewards"
-            color="orange"
-          />
-        </div>
-
         <div v-if="students.length === 0" class="empty-state">
           <div class="empty-icon">
             <svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
@@ -497,15 +442,11 @@ onMounted(async () => {
             v-for="student in students"
             :key="student.id"
             :student="student"
-            :week-dates="weekDates"
-            :day-names="dayNames"
-            :student-rewards="getStudentRewards(student.id)"
+            :week-dates="getStudentWeekDates(student)"
+            :day-names="getStudentDayNames(student)"
             :get-attendance="getAttendance"
             @toggle-attendance="toggleAttendance"
             @delete-student="deleteStudent"
-            @assign-reward="openRewardModal"
-            @toggle-reward-redeemed="toggleRewardRedeemed"
-            @remove-reward="removeReward"
           />
         </div>
       </div>
@@ -516,19 +457,8 @@ onMounted(async () => {
       @add="addStudent"
       @close="showAddModal = false"
     />
-
-    <AssignRewardModal
-      v-if="showRewardModal && selectedStudent"
-      :student="selectedStudent"
-      :available-rewards="rewards"
-      @assign="assignReward"
-      @create-and-assign="createAndAssignReward"
-      @close="showRewardModal = false; selectedStudentId = null"
-    />
   </div>
 </template>
-
-<!-- Keep your existing <style scoped> block here -->
 
 <style scoped>
 .dashboard {
@@ -613,100 +543,51 @@ h1 {
 
 .loading {
   text-align: center;
-  padding: 6rem 2rem;
+  padding: 4rem 2rem;
 }
 
 .spinner {
-  width: 56px;
-  height: 56px;
-  border: 5px solid #e2e8f0;
+  width: 48px;
+  height: 48px;
+  border: 4px solid #e2e8f0;
   border-top-color: #3b82f6;
-  border-bottom-color: #3b82f6;
   border-radius: 50%;
   animation: spin 1s linear infinite;
-  margin: 0 auto 1.5rem;
-  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.2);
+  margin: 0 auto 1rem;
 }
 
 @keyframes spin {
   to { transform: rotate(360deg); }
 }
 
-.loading p {
-  color: #64748b;
-  font-size: 1.05rem;
-  font-weight: 500;
-}
-
 .controls-bar {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 2rem;
+  margin-bottom: 1.5rem;
   gap: 1rem;
   flex-wrap: wrap;
-}
-
-.stats-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-  gap: 1.25rem;
-  margin-bottom: 2rem;
-  animation: fadeInUp 0.6s ease-out;
-}
-
-@keyframes fadeInUp {
-  from {
-    opacity: 0;
-    transform: translateY(20px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
 }
 
 .add-btn {
   background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
   color: white;
   border: none;
-  padding: 0.875rem 1.75rem;
+  padding: 0.75rem 1.5rem;
   border-radius: 12px;
   font-weight: 600;
   font-size: 0.95rem;
   cursor: pointer;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  box-shadow: 0 2px 8px rgba(59, 130, 246, 0.25), 0 0 0 0 rgba(59, 130, 246, 0.4);
+  transition: all 0.3s ease;
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  position: relative;
-  overflow: hidden;
-}
-
-.add-btn::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  background: linear-gradient(135deg, rgba(255, 255, 255, 0.1) 0%, rgba(255, 255, 255, 0) 100%);
-  opacity: 0;
-  transition: opacity 0.3s ease;
-}
-
-.add-btn:hover::before {
-  opacity: 1;
 }
 
 .add-btn:hover {
   transform: translateY(-2px);
-  box-shadow: 0 4px 16px rgba(59, 130, 246, 0.35), 0 0 0 4px rgba(59, 130, 246, 0.1);
-}
-
-.add-btn:active {
-  transform: translateY(0);
+  box-shadow: 0 6px 20px rgba(59, 130, 246, 0.4);
 }
 
 .week-navigation {
@@ -778,122 +659,70 @@ h1 {
 .empty-state {
   background: white;
   border-radius: 20px;
-  padding: 5rem 2rem;
+  padding: 4rem 2rem;
   text-align: center;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
-  border: 1px solid #e2e8f0;
-  animation: fadeInScale 0.5s ease-out;
-}
-
-@keyframes fadeInScale {
-  from {
-    opacity: 0;
-    transform: scale(0.95);
-  }
-  to {
-    opacity: 1;
-    transform: scale(1);
-  }
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
 }
 
 .empty-icon {
   color: #cbd5e1;
-  margin-bottom: 2rem;
-  animation: float 3s ease-in-out infinite;
-}
-
-@keyframes float {
-  0%, 100% { transform: translateY(0px); }
-  50% { transform: translateY(-10px); }
+  margin-bottom: 1.5rem;
 }
 
 .empty-state h2 {
   color: #0f172a;
-  font-size: 1.75rem;
-  margin: 0 0 0.75rem 0;
+  font-size: 1.5rem;
+  margin: 0 0 0.5rem 0;
   font-weight: 700;
 }
 
 .empty-state p {
   color: #64748b;
-  font-size: 1.05rem;
-  margin: 0 0 2.5rem 0;
-  line-height: 1.6;
-  max-width: 400px;
-  margin-left: auto;
-  margin-right: auto;
+  font-size: 1rem;
+  margin: 0 0 2rem 0;
 }
 
 .add-btn-large {
   background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
   color: white;
   border: none;
-  padding: 1.125rem 2.5rem;
-  border-radius: 14px;
+  padding: 1rem 2rem;
+  border-radius: 12px;
   font-weight: 600;
-  font-size: 1.05rem;
+  font-size: 1rem;
   cursor: pointer;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  box-shadow: 0 4px 16px rgba(59, 130, 246, 0.3);
+  transition: all 0.3s ease;
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
   display: inline-flex;
   align-items: center;
-  gap: 0.625rem;
-  position: relative;
-  overflow: hidden;
-}
-
-.add-btn-large::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  background: linear-gradient(135deg, rgba(255, 255, 255, 0.15) 0%, rgba(255, 255, 255, 0) 100%);
-  opacity: 0;
-  transition: opacity 0.3s ease;
-}
-
-.add-btn-large:hover::before {
-  opacity: 1;
+  gap: 0.5rem;
 }
 
 .add-btn-large:hover {
-  transform: translateY(-3px) scale(1.02);
-  box-shadow: 0 8px 24px rgba(59, 130, 246, 0.4);
-}
-
-.add-btn-large:active {
-  transform: translateY(-1px) scale(1);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(59, 130, 246, 0.4);
 }
 
 .students-container {
   background: white;
   border-radius: 20px;
   padding: 0;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
-  border: 1px solid #e2e8f0;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
   overflow: hidden;
-  animation: fadeIn 0.4s ease-out;
-}
-
-@keyframes fadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
 }
 
 .week-header {
   display: grid;
-  grid-template-columns: 280px 1fr 100px;
+  grid-template-columns: 280px 1fr 80px;
   gap: 1rem;
-  padding: 1.5rem 1.25rem;
+  padding: 1.25rem;
   background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
-  border-bottom: 1px solid #e2e8f0;
+  border-bottom: 2px solid #e2e8f0;
   font-weight: 700;
   color: #475569;
-  font-size: 0.8rem;
+  font-size: 0.85rem;
   text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.05em;
 }
 
 .attendance-cols {
@@ -920,7 +749,7 @@ h1 {
 
 @media (max-width: 1024px) {
   .week-header {
-    grid-template-columns: 200px 1fr 90px;
+    grid-template-columns: 200px 1fr 80px;
     gap: 0.75rem;
     font-size: 0.75rem;
   }
@@ -936,17 +765,6 @@ h1 {
 
   .week-navigation {
     justify-content: center;
-  }
-
-  .stats-grid {
-    grid-template-columns: repeat(2, 1fr);
-    gap: 1rem;
-  }
-}
-
-@media (max-width: 640px) {
-  .stats-grid {
-    grid-template-columns: 1fr;
   }
 }
 
