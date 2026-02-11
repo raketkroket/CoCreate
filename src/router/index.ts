@@ -10,8 +10,36 @@ const routes: RouteRecordRaw[] = [
   },
   {
     path: '/',
+    redirect: '/dashboard'
+  },
+  {
+    path: '/dashboard',
     name: 'Dashboard',
     component: () => import('../views/DashboardView.vue'),
+    meta: { requiresAuth: true }
+  },
+  {
+    path: '/reports',
+    name: 'Reports',
+    component: () => import('../views/ReportsView.vue'),
+    meta: { requiresAuth: true }
+  },
+  {
+    path: '/students',
+    name: 'Students',
+    component: () => import('../views/StudentsView.vue'),
+    meta: { requiresAuth: true }
+  },
+  {
+    path: '/leaderboard',
+    name: 'Leaderboard',
+    component: () => import('../views/LeaderboardView.vue'),
+    meta: { requiresAuth: true }
+  },
+  {
+    path: '/settings',
+    name: 'Settings',
+    component: () => import('../views/SettingsView.vue'),
     meta: { requiresAuth: true }
   }
 ];
@@ -28,7 +56,7 @@ router.beforeEach(async (to, _, next) => {
   if (requiresAuth && !session) {
     next('/login');
   } else if (to.path === '/login' && session) {
-    next('/');
+    next('/dashboard');
   } else {
     next();
   }
