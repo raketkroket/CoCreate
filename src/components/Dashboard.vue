@@ -1,14 +1,21 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
-import { supabase } from '../supabase'
-import type { Student, Attendance, Reward, StudentReward } from '../supabase'
+import { useRouter } from 'vue-router'
+import { supabase } from '../composables/supabase'
+import type { Student, Attendance, Reward, StudentReward } from '../composables/supabase'
 import { useAuth } from '../composables/useAuth'
+import { useToast } from '../composables/useToast'
+import { useConfetti } from '../composables/useConfetti'
 import StudentCard from './StudentCard.vue'
 import AddStudentModal from './AddStudentModal.vue'
 import AssignRewardModal from './AssignRewardModal.vue'
 import StatCard from './StatCard.vue'
 
+const router = useRouter()
+
 const { user, signOut } = useAuth()
+const { error: showError, success: showSuccess } = useToast()
+const { celebrate } = useConfetti()
 
 const students = ref<Student[]>([])
 const attendanceRecords = ref<Attendance[]>([])
@@ -28,11 +35,16 @@ const getWeekDates = (weekOffset: number) => {
   const monday = new Date(today)
   monday.setDate(today.getDate() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1) + (weekOffset * 7))
 
+  console.log('getWeekDates - Today:', today.toISOString(), 'Day of week:', dayOfWeek, 'Monday:', monday.toISOString(), 'Offset:', weekOffset)
+
   for (let i = 0; i < 5; i++) {
     const date = new Date(monday)
     date.setDate(monday.getDate() + i)
-    dates.push(date.toISOString().split('T')[0])
+    const dateStr = date.toISOString().split('T')[0]
+    console.log(`  Day ${i} (${['Mon', 'Tue', 'Wed', 'Thu', 'Fri'][i]}):`, dateStr)
+    dates.push(dateStr)
   }
+  console.log('Generated week dates:', dates)
   return dates
 }
 
@@ -56,27 +68,45 @@ const weekDateRange = computed(() => {
 const dayNames = ['Ma', 'Di', 'Wo', 'Do', 'Vr']
 
 const loadTeacherInfo = async () => {
-  if (!user.value) return
+  console.log('loadTeacherInfo - user.value:', user.value)
+  if (!user.value) {
+    console.error('No user found in loadTeacherInfo')
+    return
+  }
 
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from('teachers')
     .select('username')
     .eq('id', user.value.id)
     .maybeSingle()
 
+  if (error) {
+    console.error('Error loading teacher info:', error)
+    showError('Kon docent informatie niet laden')
+    return
+  }
+
   if (data) {
     teacherName.value = data.username
+  } else {
+    console.log('No teacher record found for user:', user.value.id)
   }
 }
 
 const loadStudents = async () => {
   if (!user.value) return
 
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from('students')
     .select('*')
     .eq('teacher_id', user.value.id)
     .order('name', { ascending: true })
+
+  if (error) {
+    console.error('Error loading students:', error)
+    showError('Kon leerlingen niet laden')
+    return
+  }
 
   if (data) {
     students.value = data
@@ -86,10 +116,16 @@ const loadStudents = async () => {
 const loadAttendance = async () => {
   if (!user.value) return
 
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from('attendance')
     .select('*')
     .in('date', weekDates.value)
+
+  if (error) {
+    console.error('Error loading attendance:', error)
+    showError('Kon aanwezigheid niet laden')
+    return
+  }
 
   if (data) {
     attendanceRecords.value = data
@@ -102,85 +138,147 @@ const getAttendance = (studentId: string, date: string) => {
   )
 }
 
+
 const toggleAttendance = async (studentId: string, date: string) => {
   const existing = getAttendance(studentId, date)
-  const student = students.value.find((s: Student) => s.id === studentId)
+  const student = students.value.find(s => s.id === studentId)
   if (!student) return
 
   try {
-    const weekAttendanceBefore = weekDates.value.map(d => getAttendance(studentId, d))
-    const wasWeekComplete = weekAttendanceBefore.every(a => a !== undefined)
-    const wasAllOnTime = wasWeekComplete && weekAttendanceBefore.every(a => a?.on_time)
-    const wasAllLate = wasWeekComplete && weekAttendanceBefore.every(a => !a?.on_time)
+    const oldWeekState = getWeekBonusState(studentId)
+    let pointsDelta = 0
 
     if (existing) {
-      const newOnTime = !existing.on_time
-      const pointsDiff = newOnTime ? 2 : -2
+      if (existing.on_time) {
+        // Yellow → Red
+        const { error } = await supabase
+          .from('attendance')
+          .update({ on_time: false })
+          .eq('id', existing.id)
+        if (error) throw error
 
-      await supabase
-        .from('attendance')
-        .update({ on_time: newOnTime })
-        .eq('id', existing.id)
+        existing.on_time = false
+        pointsDelta = -1 - (+1)   // remove the +1 you gave earlier, and add -1 penalty
+        //            = -2 total change from yellow
+      } else {
+        // Red → Grey (remove record)
+        const { error } = await supabase
+          .from('attendance')
+          .delete()
+          .eq('id', existing.id)
+        if (error) throw error
 
-      existing.on_time = newOnTime
-      student.points += pointsDiff
+        attendanceRecords.value = attendanceRecords.value.filter(a => a.id !== existing.id)
+        pointsDelta = +1          // undo the -1 late penalty
+      }
     } else {
-      const onTime = true
-
-      const { data } = await supabase
+      // Grey → Yellow
+      const { data, error } = await supabase
         .from('attendance')
         .insert({
           student_id: studentId,
           date,
-          on_time: onTime
+          on_time: true
         })
         .select()
         .single()
-
+      if (error) throw error
       if (data) {
         attendanceRecords.value.push(data)
       }
-
-      student.points += 1
+      pointsDelta = +1
     }
 
-    const weekAttendanceAfter = weekDates.value.map(d => getAttendance(studentId, d))
-    const isWeekComplete = weekAttendanceAfter.every(a => a !== undefined)
-    const isAllOnTime = isWeekComplete && weekAttendanceAfter.every(a => a?.on_time)
-    const isAllLate = isWeekComplete && weekAttendanceAfter.every(a => !a?.on_time)
-
-    let bonusAdjustment = 0
-
-    if (!wasAllOnTime && isAllOnTime) {
-      bonusAdjustment += 5
-    } else if (wasAllOnTime && !isAllOnTime) {
-      bonusAdjustment -= 5
-    }
-
-    if (!wasAllLate && isAllLate) {
-      bonusAdjustment -= 5
-    } else if (wasAllLate && !isAllLate) {
-      bonusAdjustment += 5
-    }
-
-    if (bonusAdjustment !== 0) {
-      student.points = Math.max(0, student.points + bonusAdjustment)
-    }
-
-    await supabase
+    // Update student points
+    const newPoints = Math.max(0, student.points + pointsDelta)
+    const { error: studentError } = await supabase
       .from('students')
-      .update({ points: student.points })
+      .update({ points: newPoints })
       .eq('id', studentId)
+    if (studentError) throw studentError
+
+    student.points = newPoints
+
+    // Update weekly bonus if needed
+    await updateWeeklyBonus(studentId, oldWeekState)
+
   } catch (err) {
     console.error('Error toggling attendance:', err)
+    showError('Kon aanwezigheid niet bijwerken')
+  }
+}
+
+const getWeekBonusState = (studentId: string): 'all_on_time' | 'all_late' | 'mixed' | 'incomplete' => {
+  const weekAttendance = weekDates.value.map(date => getAttendance(studentId, date))
+  console.log('getWeekBonusState - Week dates:', weekDates.value)
+  console.log('getWeekBonusState - Week attendance:', weekAttendance.map(a => a ? `${a.date} ${a.on_time ? '✓' : '✗'}` : 'missing'))
+
+  if (!weekAttendance.every(a => a !== undefined)) {
+    console.log('getWeekBonusState result: incomplete')
+    return 'incomplete'
+  }
+
+  const allOnTime = weekAttendance.every(a => a?.on_time)
+  const allLate = weekAttendance.every(a => !a?.on_time)
+
+  if (allOnTime) {
+    console.log('getWeekBonusState result: all_on_time ✓✓✓✓✓')
+    return 'all_on_time'
+  }
+  if (allLate) {
+    console.log('getWeekBonusState result: all_late')
+    return 'all_late'
+  }
+  console.log('getWeekBonusState result: mixed')
+  return 'mixed'
+}
+
+const updateWeeklyBonus = async (studentId: string, oldState: string) => {
+  const student = students.value.find(s => s.id === studentId)
+  if (!student) return
+
+  const newState = getWeekBonusState(studentId)
+  console.log('updateWeeklyBonus - Old state:', oldState, '→ New state:', newState)
+
+  if (oldState === newState) return
+
+  let pointsAdjustment = 0
+
+  if (oldState === 'all_on_time') {
+    pointsAdjustment -= 5
+  } else if (oldState === 'all_late') {
+    pointsAdjustment += 5
+  }
+
+  if (newState === 'all_on_time') {
+    pointsAdjustment += 5
+    console.log('🎉 All days on time! Triggering confetti!')
+    celebrate()
+  } else if (newState === 'all_late') {
+    pointsAdjustment -= 5
+  }
+
+  if (pointsAdjustment !== 0) {
+    const newPoints = Math.max(0, student.points + pointsAdjustment)
+    await supabase
+      .from('students')
+      .update({ points: newPoints })
+      .eq('id', studentId)
+    student.points = newPoints
+    console.log('Week bonus applied. Points adjustment:', pointsAdjustment, '→ New points:', newPoints)
   }
 }
 
 const addStudent = async (name: string) => {
-  if (!user.value) return
+  console.log('addStudent called', { name, user: user.value })
+  if (!user.value) {
+    console.error('No user found in addStudent')
+    showError('Je moet ingelogd zijn')
+    return
+  }
 
   try {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('students')
       .insert({
         teacher_id: user.value.id,
@@ -190,12 +288,18 @@ const addStudent = async (name: string) => {
       .select()
       .single()
 
+    console.log('addStudent result:', { data, error })
+
+    if (error) throw error
+
     if (data) {
       students.value.push(data)
       showAddModal.value = false
+      showSuccess('Leerling toegevoegd')
     }
   } catch (err) {
     console.error('Error adding student:', err)
+    showError(`Kon leerling niet toevoegen: ${err}`)
   }
 }
 
@@ -205,23 +309,29 @@ const deleteStudent = async (studentId: string) => {
   }
 
   try {
-    await supabase
+    const { error } = await supabase
       .from('students')
       .delete()
       .eq('id', studentId)
 
+    if (error) throw error
+
     students.value = students.value.filter((s: Student) => s.id !== studentId)
     attendanceRecords.value = attendanceRecords.value.filter((a: Attendance) => a.student_id !== studentId)
+    showSuccess('Leerling verwijderd')
   } catch (err) {
     console.error('Error deleting student:', err)
+    showError('Kon leerling niet verwijderen')
   }
 }
 
 const handleSignOut = async () => {
   try {
     await signOut()
+    router.push('/login')
   } catch (err) {
     console.error('Error signing out:', err)
+    showError('Uitloggen mislukt')
   }
 }
 
@@ -238,11 +348,17 @@ const goToCurrentWeek = async () => {
 const loadRewards = async () => {
   if (!user.value) return
 
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from('rewards')
     .select('*')
     .eq('teacher_id', user.value.id)
     .order('points_required', { ascending: true })
+
+  if (error) {
+    console.error('Error loading rewards:', error)
+    showError('Kon beloningen niet laden')
+    return
+  }
 
   if (data) {
     rewards.value = data
@@ -252,13 +368,19 @@ const loadRewards = async () => {
 const loadStudentRewards = async () => {
   if (!user.value) return
 
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from('student_rewards')
     .select(`
       *,
       reward:rewards(*)
     `)
     .order('assigned_at', { ascending: false })
+
+  if (error) {
+    console.error('Error loading student rewards:', error)
+    showError('Kon leerling beloningen niet laden')
+    return
+  }
 
   if (data) {
     studentRewards.value = data
@@ -311,7 +433,7 @@ const assignReward = async (rewardId: string) => {
   if (!selectedStudentId.value) return
 
   try {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('student_rewards')
       .insert({
         student_id: selectedStudentId.value,
@@ -324,13 +446,17 @@ const assignReward = async (rewardId: string) => {
       `)
       .single()
 
+    if (error) throw error
+
     if (data) {
       studentRewards.value.push(data)
       showRewardModal.value = false
       selectedStudentId.value = null
+      showSuccess('Beloning toegekend')
     }
   } catch (err) {
     console.error('Error assigning reward:', err)
+    showError('Kon beloning niet toekennen')
   }
 }
 
@@ -343,7 +469,7 @@ const createAndAssignReward = async (
   if (!user.value || !selectedStudentId.value) return
 
   try {
-    const { data: rewardData } = await supabase
+    const { data: rewardData, error } = await supabase
       .from('rewards')
       .insert({
         teacher_id: user.value.id,
@@ -355,12 +481,15 @@ const createAndAssignReward = async (
       .select()
       .single()
 
+    if (error) throw error
+
     if (rewardData) {
       rewards.value.push(rewardData)
       await assignReward(rewardData.id)
     }
   } catch (err) {
     console.error('Error creating reward:', err)
+    showError('Kon beloning niet aanmaken')
   }
 }
 
@@ -370,7 +499,7 @@ const toggleRewardRedeemed = async (studentRewardId: string) => {
 
   try {
     const newRedeemed = !studentReward.redeemed
-    await supabase
+    const { error } = await supabase
       .from('student_rewards')
       .update({
         redeemed: newRedeemed,
@@ -378,10 +507,14 @@ const toggleRewardRedeemed = async (studentRewardId: string) => {
       })
       .eq('id', studentRewardId)
 
+    if (error) throw error
+
     studentReward.redeemed = newRedeemed
     studentReward.redeemed_at = newRedeemed ? new Date().toISOString() : null
+    showSuccess(newRedeemed ? 'Beloning verzilverd' : 'Beloning hersteld')
   } catch (err) {
     console.error('Error toggling reward:', err)
+    showError('Kon beloning status niet wijzigen')
   }
 }
 
@@ -391,14 +524,18 @@ const removeReward = async (studentRewardId: string) => {
   }
 
   try {
-    await supabase
+    const { error } = await supabase
       .from('student_rewards')
       .delete()
       .eq('id', studentRewardId)
 
+    if (error) throw error
+
     studentRewards.value = studentRewards.value.filter(sr => sr.id !== studentRewardId)
+    showSuccess('Beloning verwijderd')
   } catch (err) {
     console.error('Error removing reward:', err)
+    showError('Kon beloning niet verwijderen')
   }
 }
 

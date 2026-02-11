@@ -1,5 +1,5 @@
 import { createRouter, createWebHistory, RouteRecordRaw } from 'vue-router';
-import { supabase } from '../supabase';
+import { supabase } from '../composables/supabase';
 
 const routes: RouteRecordRaw[] = [
   {

@@ -5,8 +5,8 @@ import ToastContainer from './components/ToastContainer.vue'
 
 const { loading, initAuth } = useAuth()
 
-onMounted(() => {
-  initAuth()
+onMounted(async () => {
+  await initAuth()
 })
 </script>
 
