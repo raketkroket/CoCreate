@@ -6,6 +6,7 @@ import { useAuth } from '../composables/useAuth'
 import { useConfetti } from '../composables/useConfetti'
 import StudentCard from './StudentCard.vue'
 import AddStudentModal from './AddStudentModal.vue'
+import NavMenu from './NavMenu.vue'
 
 const { user, signOut } = useAuth()
 const { celebrate } = useConfetti()
@@ -350,14 +351,17 @@ onMounted(async () => {
             </div>
           </div>
         </div>
-        <button @click="handleSignOut" class="logout-btn">
-          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
-            <polyline points="16 17 21 12 16 7"></polyline>
-            <line x1="21" y1="12" x2="9" y2="12"></line>
-          </svg>
-          Uitloggen
-        </button>
+        <div class="header-right">
+          <NavMenu />
+          <button @click="handleSignOut" class="logout-btn">
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
+              <polyline points="16 17 21 12 16 7"></polyline>
+              <line x1="21" y1="12" x2="9" y2="12"></line>
+            </svg>
+            Uitloggen
+          </button>
+        </div>
       </div>
     </header>
 
@@ -482,6 +486,13 @@ onMounted(async () => {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 2rem;
+}
+
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
 }
 
 .logo-section {
@@ -777,6 +788,10 @@ h1 {
     flex-direction: column;
     gap: 1rem;
     align-items: stretch;
+  }
+
+  .header-right {
+    flex-direction: column;
   }
 
   .logo-section {
