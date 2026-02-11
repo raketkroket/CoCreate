@@ -196,7 +196,26 @@ const toggleAttendance = async (studentId: string, date: string) => {
   }
 }
 
+const checkWeeklyBonus = async (studentId: string) => {
+  const student = students.value.find(s => s.id === studentId)
+  if (!student) return
 
+  const weekAttendance = weekDates.value.map(date => getAttendance(studentId, date))
+
+  // Alleen bonus als ALLE dagen bestaan én allemaal groen zijn
+  if (weekAttendance.every(a => a !== undefined)) {
+    const allOnTime = weekAttendance.every(a => a?.on_time === true)
+
+    if (allOnTime) {
+  const newPoints = student.points + 5
+  await supabase.from('students').update({ points: newPoints }).eq('id', studentId)
+  student.points = newPoints
+  celebrate()           // ← add this line
+  console.log('Perfecte week! +5')
+}
+    // GEEN else → geen -5 straf, ook niet bij allLate
+  }
+}
 const getWeekBonusState = (studentId: string): 'all_on_time' | 'all_late' | 'mixed' | 'incomplete' => {
   const weekAttendance = weekDates.value.map(date => getAttendance(studentId, date))
   console.log('getWeekBonusState - Week dates:', weekDates.value)
