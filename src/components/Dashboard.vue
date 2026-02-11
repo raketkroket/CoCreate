@@ -139,23 +139,66 @@ const getAttendance = (studentId: string, date: string) => {
 }
 
 
-const updateWeeklyBonus = async (studentId: string, oldState: string) => {
+const toggleAttendance = async (studentId: string, date: string) => {
+  const existing = getAttendance(studentId, date)
   const student = students.value.find(s => s.id === studentId)
   if (!student) return
 
-  const newState = getWeekBonusState(studentId)
+  try {
+    const oldWeekState = getWeekBonusState(studentId)
+    let pointsDelta = 0
 
-  // Alleen +bonus als je VAN incomplete/mixed/all_late NAAR all_on_time gaat
-  // Geen straf meer als het bonus verliest
-  if (oldState !== 'all_on_time' && newState === 'all_on_time') {
-    const pointsAdjustment = 5
-    const newPoints = Math.max(0, student.points + pointsAdjustment)
-    await supabase.from('students').update({ points: newPoints }).eq('id', studentId)
+    if (existing) {
+      if (existing.on_time) {
+        // Groen → Geel
+        const { error } = await supabase
+          .from('attendance')
+          .update({ on_time: false })
+          .eq('id', existing.id)
+        if (error) throw error
+
+        existing.on_time = false
+        pointsDelta = -2
+      } else {
+        // Geel → Grijs
+        const { error } = await supabase
+          .from('attendance')
+          .delete()
+          .eq('id', existing.id)
+        if (error) throw error
+
+        attendanceRecords.value = attendanceRecords.value.filter(a => a.id !== existing.id)
+        pointsDelta = +1
+      }
+    } else {
+      // Grijs → Groen
+      const { data, error } = await supabase
+        .from('attendance')
+        .insert({ student_id: studentId, date, on_time: true })
+        .select()
+        .single()
+
+      if (error) throw error
+      if (data) attendanceRecords.value.push(data)
+
+      pointsDelta = +1
+    }
+
+    const newPoints = Math.max(0, student.points + pointsDelta)
+    const { error: studentError } = await supabase
+      .from('students')
+      .update({ points: newPoints })
+      .eq('id', studentId)
+    if (studentError) throw studentError
+
     student.points = newPoints
-    console.log('Perfecte week bonus! +5')
-    celebrate()
+
+    await updateWeeklyBonus(studentId, oldWeekState)
+
+  } catch (err) {
+    console.error('fout bij toggle:', err)
+    showError('Kon aanwezigheid niet aanpassen 😢')
   }
-  // Geen else meer → geen -5 als het niet meer perfect is
 }
 const getWeekBonusState = (studentId: string): 'all_on_time' | 'all_late' | 'mixed' | 'incomplete' => {
   const weekAttendance = weekDates.value.map(date => getAttendance(studentId, date))
