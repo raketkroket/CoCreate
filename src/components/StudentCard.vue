@@ -1,17 +1,22 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import type { Student, Attendance } from '../composables/supabase'
+import type { Student, Attendance, StudentReward } from '../supabase'
+import RewardBadge from './RewardBadge.vue'
 
 const props = defineProps<{
   student: Student
   weekDates: string[]
   dayNames: string[]
+  studentRewards: StudentReward[]
   getAttendance: (studentId: string, date: string) => Attendance | undefined
 }>()
 
 const emit = defineEmits<{
   toggleAttendance: [studentId: string, date: string]
   deleteStudent: [studentId: string]
+  assignReward: [studentId: string]
+  toggleRewardRedeemed: [studentRewardId: string]
+  removeReward: [studentRewardId: string]
 }>()
 
 const getStatusClass = (studentId: string, date: string) => {
@@ -42,8 +47,6 @@ const pointsProgress = computed(() => {
   const progress = ((points - prevMilestone) / (nextMilestone - prevMilestone)) * 100
   return { progress: Math.min(progress, 100), nextMilestone }
 })
-
-const gridColumns = computed(() => props.weekDates.length)
 </script>
 
 <template>
@@ -77,10 +80,19 @@ const gridColumns = computed(() => props.weekDates.length)
           </div>
           <span class="progress-label">{{ pointsProgress.nextMilestone }} punten</span>
         </div>
+        <div v-if="studentRewards.length > 0" class="rewards-list">
+          <RewardBadge
+            v-for="studentReward in studentRewards"
+            :key="studentReward.id"
+            :student-reward="studentReward"
+            @toggle-redeem="emit('toggleRewardRedeemed', $event)"
+            @remove="emit('removeReward', $event)"
+          />
+        </div>
       </div>
     </div>
 
-    <div class="attendance-grid" :style="{ gridTemplateColumns: `repeat(${gridColumns}, 1fr)` }">
+    <div class="attendance-grid">
       <button
         v-for="(date, index) in weekDates"
         :key="date"
@@ -94,6 +106,15 @@ const gridColumns = computed(() => props.weekDates.length)
     </div>
 
     <div class="actions">
+      <button @click="emit('assignReward', student.id)" class="reward-btn" title="Ken beloning toe">
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="20 12 20 22 4 22 4 12"></polyline>
+          <rect x="2" y="7" width="20" height="5"></rect>
+          <line x1="12" y1="22" x2="12" y2="7"></line>
+          <path d="M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7z"></path>
+          <path d="M12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z"></path>
+        </svg>
+      </button>
       <button @click="emit('deleteStudent', student.id)" class="delete-btn" title="Verwijder leerling">
         <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <polyline points="3 6 5 6 21 6"></polyline>
@@ -107,7 +128,7 @@ const gridColumns = computed(() => props.weekDates.length)
 <style scoped>
 .student-row {
   display: grid;
-  grid-template-columns: 280px 1fr 80px;
+  grid-template-columns: 280px 1fr 100px;
   gap: 1rem;
   padding: 1.25rem;
   border-bottom: 1px solid #e2e8f0;
@@ -255,6 +276,7 @@ const gridColumns = computed(() => props.weekDates.length)
 
 .attendance-grid {
   display: grid;
+  grid-template-columns: repeat(5, 1fr);
   gap: 0.5rem;
 }
 
@@ -329,12 +351,20 @@ const gridColumns = computed(() => props.weekDates.length)
   transform: scale(1.05);
 }
 
+.rewards-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
 .actions {
   display: flex;
   gap: 0.5rem;
   justify-content: center;
 }
 
+.reward-btn,
 .delete-btn {
   width: 40px;
   height: 40px;
@@ -345,6 +375,19 @@ const gridColumns = computed(() => props.weekDates.length)
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+.reward-btn {
+  background: #fef3c7;
+  color: #d97706;
+}
+
+.reward-btn:hover {
+  background: #fde68a;
+  transform: scale(1.1);
+}
+
+.delete-btn {
   background: #fee2e2;
   color: #dc2626;
 }
@@ -356,7 +399,7 @@ const gridColumns = computed(() => props.weekDates.length)
 
 @media (max-width: 1024px) {
   .student-row {
-    grid-template-columns: 200px 1fr 80px;
+    grid-template-columns: 200px 1fr 90px;
     gap: 0.75rem;
     padding: 1rem;
   }
@@ -392,6 +435,7 @@ const gridColumns = computed(() => props.weekDates.length)
     font-size: 1rem;
   }
 
+  .reward-btn,
   .delete-btn {
     width: 36px;
     height: 36px;
@@ -402,6 +446,10 @@ const gridColumns = computed(() => props.weekDates.length)
   .student-row {
     grid-template-columns: 1fr;
     gap: 1rem;
+  }
+
+  .attendance-grid {
+    grid-template-columns: repeat(5, 1fr);
   }
 
   .actions {
