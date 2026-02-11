@@ -150,44 +150,55 @@ const toggleAttendance = async (studentId: string, date: string) => {
 
     if (existing) {
       if (existing.on_time) {
-        // Yellow → Red
-        const { error } = await supabase
+        // Groen → Geel (on time → te laat)
+        await supabase
           .from('attendance')
           .update({ on_time: false })
           .eq('id', existing.id)
-        if (error) throw error
 
         existing.on_time = false
-        pointsDelta = -1 - (+1)   // remove the +1 you gave earlier, and add -1 penalty
-        //            = -2 total change from yellow
+        pointsDelta = -2   // +1 weghalen + -1 straf erbij = -2
       } else {
-        // Red → Grey (remove record)
-        const { error } = await supabase
+        // Geel → Grijs (verwijder record)
+        await supabase
           .from('attendance')
           .delete()
           .eq('id', existing.id)
-        if (error) throw error
 
         attendanceRecords.value = attendanceRecords.value.filter(a => a.id !== existing.id)
-        pointsDelta = +1          // undo the -1 late penalty
+        pointsDelta = +1   // straf ongedaan maken
       }
     } else {
-      // Grey → Yellow
+      // Grijs → Groen (toevoegen on time)
       const { data, error } = await supabase
         .from('attendance')
-        .insert({
-          student_id: studentId,
-          date,
-          on_time: true
-        })
+        .insert({ student_id: studentId, date, on_time: true })
         .select()
         .single()
+
       if (error) throw error
-      if (data) {
-        attendanceRecords.value.push(data)
-      }
+      if (data) attendanceRecords.value.push(data)
+
       pointsDelta = +1
     }
+
+    // punten updaten
+    const newPoints = Math.max(0, student.points + pointsDelta)
+    await supabase
+      .from('students')
+      .update({ points: newPoints })
+      .eq('id', studentId)
+
+    student.points = newPoints
+
+    // weekbonus checken
+    await updateWeeklyBonus(studentId, oldWeekState)
+
+  } catch (err) {
+    console.error('fout bij toggle:', err)
+    showError('Kon aanwezigheid niet aanpassen 😢')
+  }
+}
 
     // Update student points
     const newPoints = Math.max(0, student.points + pointsDelta)
