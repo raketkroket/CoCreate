@@ -444,7 +444,7 @@ const handleCreateAndAssign = async (
     closeRewardModal()
   }
 }
-
+ 
 onMounted(async () => {
   isLoading.value = true
   await loadSettings()
@@ -622,7 +622,7 @@ onMounted(async () => {
     <div>
       <AssignRewardModal
   v-if="showRewardModal && selectedStudentId"
-  :student="students.find(s => s.id === selectedStudentId)"
+  :student="students.find(s => s.id === selectedStudentId)!"
   :available-rewards="rewards"
   @assign="handleAssignReward"
   @create-and-assign="handleCreateAndAssign"
