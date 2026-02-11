@@ -1,22 +1,17 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import type { Student, Attendance, StudentReward } from '../composables/supabase'
-import RewardBadge from './RewardBadge.vue'
+import type { Student, Attendance } from '../composables/supabase'
 
 const props = defineProps<{
   student: Student
   weekDates: string[]
   dayNames: string[]
-  studentRewards: StudentReward[]
   getAttendance: (studentId: string, date: string) => Attendance | undefined
 }>()
 
 const emit = defineEmits<{
   toggleAttendance: [studentId: string, date: string]
   deleteStudent: [studentId: string]
-  assignReward: [studentId: string]
-  toggleRewardRedeemed: [studentRewardId: string]
-  removeReward: [studentRewardId: string]
 }>()
 
 const getStatusClass = (studentId: string, date: string) => {
@@ -48,41 +43,15 @@ const pointsProgress = computed(() => {
   return { progress: Math.min(progress, 100), nextMilestone }
 })
 
-const getInitials = computed(() => {
-  const parts = props.student.name.trim().split(/\s+/)
-  if (parts.length === 1) {
-    return parts[0].substring(0, 2).toUpperCase()
-  }
-  return (parts[0].charAt(0) + parts[parts.length - 1].charAt(0)).toUpperCase()
-})
-
-const getAvatarColor = computed(() => {
-  const colors = [
-    { bg: 'linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%)', shadow: 'rgba(59, 130, 246, 0.3)' },
-    { bg: 'linear-gradient(135deg, #10b981 0%, #059669 100%)', shadow: 'rgba(16, 185, 129, 0.3)' },
-    { bg: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)', shadow: 'rgba(245, 158, 11, 0.3)' },
-    { bg: 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)', shadow: 'rgba(239, 68, 68, 0.3)' },
-    { bg: 'linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)', shadow: 'rgba(139, 92, 246, 0.3)' },
-    { bg: 'linear-gradient(135deg, #ec4899 0%, #db2777 100%)', shadow: 'rgba(236, 72, 153, 0.3)' },
-    { bg: 'linear-gradient(135deg, #14b8a6 0%, #0d9488 100%)', shadow: 'rgba(20, 184, 166, 0.3)' },
-    { bg: 'linear-gradient(135deg, #f97316 0%, #ea580c 100%)', shadow: 'rgba(249, 115, 22, 0.3)' }
-  ]
-
-  let hash = 0
-  for (let i = 0; i < props.student.name.length; i++) {
-    hash = props.student.name.charCodeAt(i) + ((hash << 5) - hash)
-  }
-
-  return colors[Math.abs(hash) % colors.length]
-})
+const gridColumns = computed(() => props.weekDates.length)
 </script>
 
 <template>
   <div class="student-row">
     <div class="student-info">
       <div class="avatar-container">
-        <div class="avatar" :style="{ background: getAvatarColor.bg, boxShadow: `0 4px 12px ${getAvatarColor.shadow}` }">
-          {{ getInitials }}
+        <div class="avatar">
+          {{ student.name.charAt(0).toUpperCase() }}
         </div>
         <div class="achievement-badge" :style="{ background: achievementLevel.color }">
           <span class="achievement-icon">{{ achievementLevel.icon }}</span>
@@ -108,19 +77,10 @@ const getAvatarColor = computed(() => {
           </div>
           <span class="progress-label">{{ pointsProgress.nextMilestone }} punten</span>
         </div>
-        <div v-if="studentRewards.length > 0" class="rewards-list">
-          <RewardBadge
-            v-for="studentReward in studentRewards"
-            :key="studentReward.id"
-            :student-reward="studentReward"
-            @toggle-redeem="emit('toggleRewardRedeemed', $event)"
-            @remove="emit('removeReward', $event)"
-          />
-        </div>
       </div>
     </div>
 
-    <div class="attendance-grid">
+    <div class="attendance-grid" :style="{ gridTemplateColumns: `repeat(${gridColumns}, 1fr)` }">
       <button
         v-for="(date, index) in weekDates"
         :key="date"
@@ -134,15 +94,6 @@ const getAvatarColor = computed(() => {
     </div>
 
     <div class="actions">
-      <button @click="emit('assignReward', student.id)" class="reward-btn" title="Ken beloning toe">
-        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <polyline points="20 12 20 22 4 22 4 12"></polyline>
-          <rect x="2" y="7" width="20" height="5"></rect>
-          <line x1="12" y1="22" x2="12" y2="7"></line>
-          <path d="M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7z"></path>
-          <path d="M12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z"></path>
-        </svg>
-      </button>
       <button @click="emit('deleteStudent', student.id)" class="delete-btn" title="Verwijder leerling">
         <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <polyline points="3 6 5 6 21 6"></polyline>
@@ -156,7 +107,7 @@ const getAvatarColor = computed(() => {
 <style scoped>
 .student-row {
   display: grid;
-  grid-template-columns: 280px 1fr 100px;
+  grid-template-columns: 280px 1fr 80px;
   gap: 1rem;
   padding: 1.25rem;
   border-bottom: 1px solid #e2e8f0;
@@ -187,14 +138,15 @@ const getAvatarColor = computed(() => {
   width: 56px;
   height: 56px;
   border-radius: 14px;
+  background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
   color: white;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 1.25rem;
+  font-size: 1.5rem;
   font-weight: 700;
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
   border: 3px solid white;
-  letter-spacing: 0.02em;
 }
 
 .achievement-badge {
@@ -303,7 +255,6 @@ const getAvatarColor = computed(() => {
 
 .attendance-grid {
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
   gap: 0.5rem;
 }
 
@@ -378,20 +329,12 @@ const getAvatarColor = computed(() => {
   transform: scale(1.05);
 }
 
-.rewards-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-  margin-top: 0.5rem;
-}
-
 .actions {
   display: flex;
   gap: 0.5rem;
   justify-content: center;
 }
 
-.reward-btn,
 .delete-btn {
   width: 40px;
   height: 40px;
@@ -402,19 +345,6 @@ const getAvatarColor = computed(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-}
-
-.reward-btn {
-  background: #fef3c7;
-  color: #d97706;
-}
-
-.reward-btn:hover {
-  background: #fde68a;
-  transform: scale(1.1);
-}
-
-.delete-btn {
   background: #fee2e2;
   color: #dc2626;
 }
@@ -426,7 +356,7 @@ const getAvatarColor = computed(() => {
 
 @media (max-width: 1024px) {
   .student-row {
-    grid-template-columns: 200px 1fr 90px;
+    grid-template-columns: 200px 1fr 80px;
     gap: 0.75rem;
     padding: 1rem;
   }
@@ -462,7 +392,6 @@ const getAvatarColor = computed(() => {
     font-size: 1rem;
   }
 
-  .reward-btn,
   .delete-btn {
     width: 36px;
     height: 36px;
@@ -473,10 +402,6 @@ const getAvatarColor = computed(() => {
   .student-row {
     grid-template-columns: 1fr;
     gap: 1rem;
-  }
-
-  .attendance-grid {
-    grid-template-columns: repeat(5, 1fr);
   }
 
   .actions {

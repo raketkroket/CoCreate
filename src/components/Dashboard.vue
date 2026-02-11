@@ -1,24 +1,32 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
+import { useRouter } from 'vue-router'
 import { supabase } from '../composables/supabase'
-import type { Student, Attendance, Reward, StudentReward } from '../composables/supabase'
+import type { Student, Attendance } from '../composables/supabase'
 import { useAuth } from '../composables/useAuth'
+import { useConfetti } from '../composables/useConfetti'
 import StudentCard from './StudentCard.vue'
 import AddStudentModal from './AddStudentModal.vue'
-import AssignRewardModal from './AssignRewardModal.vue'
+import NavMenu from './NavMenu.vue'
 
+const router = useRouter()
 const { user, signOut } = useAuth()
+const { celebrate } = useConfetti()
 
 const students = ref<Student[]>([])
 const attendanceRecords = ref<Attendance[]>([])
-const rewards = ref<Reward[]>([])
-const studentRewards = ref<StudentReward[]>([])
+const weeklyBonuses = ref<{ student_id: string; week_start_date: string }[]>([])
 const isLoading = ref(true)
 const showAddModal = ref(false)
-const showRewardModal = ref(false)
-const selectedStudentId = ref<string | null>(null)
 const teacherName = ref('')
 const currentWeekOffset = ref(0)
+const processingAttendance = ref<Set<string>>(new Set())
+
+const settings = ref({
+  points_on_time: 2,
+  points_late: -2,
+  points_absent: -5
+})
 
 const getWeekDates = (weekOffset: number) => {
   const dates = []
@@ -26,7 +34,6 @@ const getWeekDates = (weekOffset: number) => {
   const dayOfWeek = today.getDay()
   const monday = new Date(today)
   monday.setDate(today.getDate() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1) + (weekOffset * 7))
-
   for (let i = 0; i < 5; i++) {
     const date = new Date(monday)
     date.setDate(monday.getDate() + i)
@@ -54,45 +61,75 @@ const weekDateRange = computed(() => {
 
 const dayNames = ['Ma', 'Di', 'Wo', 'Do', 'Vr']
 
+const getStudentWeekDates = (student: Student) => {
+  const noFridayStudents = ['Hans', 'Billy', 'Niek']
+  if (noFridayStudents.includes(student.name)) {
+    return weekDates.value.slice(0, 4)
+  }
+  return weekDates.value
+}
+
+const getStudentDayNames = (student: Student) => {
+  const noFridayStudents = ['Hans', 'Billy', 'Niek']
+  if (noFridayStudents.includes(student.name)) {
+    return dayNames.slice(0, 4)
+  }
+  return dayNames
+}
+
 const loadTeacherInfo = async () => {
   if (!user.value) return
-
   const { data } = await supabase
     .from('teachers')
     .select('username')
     .eq('id', user.value.id)
     .maybeSingle()
+  if (data) teacherName.value = data.username
+}
 
+const loadSettings = async () => {
+  if (!user.value) return
+  const { data } = await supabase
+    .from('teacher_settings')
+    .select('points_on_time, points_late, points_absent')
+    .eq('user_id', user.value.id)
+    .maybeSingle()
   if (data) {
-    teacherName.value = data.username
+    settings.value = {
+      points_on_time: data.points_on_time,
+      points_late: data.points_late,
+      points_absent: data.points_absent
+    }
   }
 }
 
 const loadStudents = async () => {
   if (!user.value) return
-
   const { data } = await supabase
     .from('students')
     .select('*')
     .eq('teacher_id', user.value.id)
     .order('name', { ascending: true })
-
-  if (data) {
-    students.value = data
-  }
+  if (data) students.value = data
 }
 
 const loadAttendance = async () => {
   if (!user.value) return
-
   const { data } = await supabase
     .from('attendance')
     .select('*')
     .in('date', weekDates.value)
+  if (data) attendanceRecords.value = data
+}
 
-  if (data) {
-    attendanceRecords.value = data
-  }
+const loadWeeklyBonuses = async () => {
+  if (!user.value) return
+  const weekStart = weekDates.value[0]
+  const { data } = await supabase
+    .from('weekly_bonuses')
+    .select('student_id, week_start_date')
+    .eq('week_start_date', weekStart)
+  if (data) weeklyBonuses.value = data
 }
 
 const getAttendance = (studentId: string, date: string) => {
@@ -101,56 +138,119 @@ const getAttendance = (studentId: string, date: string) => {
   )
 }
 
+
 const toggleAttendance = async (studentId: string, date: string) => {
+  const lockKey = `${studentId}-${date}`
+  if (processingAttendance.value.has(lockKey)) return
+
+  processingAttendance.value.add(lockKey)
+
   const existing = getAttendance(studentId, date)
-  const student = students.value.find((s: Student) => s.id === studentId)
-  if (!student) return
+  const student = students.value.find(s => s.id === studentId)
+  if (!student) {
+    processingAttendance.value.delete(lockKey)
+    return
+  }
 
   try {
+    const weekStart = weekDates.value[0]
+    const hadBonus = weeklyBonuses.value.some(
+      b => b.student_id === studentId && b.week_start_date === weekStart
+    )
+
     if (existing) {
-      const newOnTime = !existing.on_time
-      const pointsDiff = newOnTime ? 2 : -2
+      if (existing.on_time) {
+        if (hadBonus) {
+          // Green → Grey (skip yellow when breaking perfect week): remove on_time points and lose bonus
+          await supabase
+            .from('weekly_bonuses')
+            .delete()
+            .eq('student_id', studentId)
+            .eq('week_start_date', weekStart)
+          weeklyBonuses.value = weeklyBonuses.value.filter(
+            b => !(b.student_id === studentId && b.week_start_date === weekStart)
+          )
 
-      await supabase
-        .from('attendance')
-        .update({ on_time: newOnTime })
-        .eq('id', existing.id)
-
-      await supabase
-        .from('students')
-        .update({ points: student.points + pointsDiff })
-        .eq('id', studentId)
-
-      existing.on_time = newOnTime
-      student.points += pointsDiff
+          await supabase
+            .from('attendance')
+            .delete()
+            .eq('id', existing.id)
+          const pointsChange = -settings.value.points_on_time - 5
+          const { data: updatedStudent } = await supabase
+            .from('students')
+            .update({ points: student.points + pointsChange })
+            .eq('id', studentId)
+            .select('points')
+            .single()
+          attendanceRecords.value = attendanceRecords.value.filter(a => a.id !== existing.id)
+          if (updatedStudent) student.points = updatedStudent.points
+        } else {
+          // Green → Yellow: change from on_time to late
+          await supabase
+            .from('attendance')
+            .update({ on_time: false })
+            .eq('id', existing.id)
+          const pointsChange = -settings.value.points_on_time + settings.value.points_late
+          const { data: updatedStudent } = await supabase
+            .from('students')
+            .update({ points: student.points + pointsChange })
+            .eq('id', studentId)
+            .select('points')
+            .single()
+          existing.on_time = false
+          if (updatedStudent) student.points = updatedStudent.points
+        }
+      } else {
+        // Yellow → Grey: remove late penalty
+        await supabase
+          .from('attendance')
+          .delete()
+          .eq('id', existing.id)
+        const pointsChange = -settings.value.points_late
+        const { data: updatedStudent } = await supabase
+          .from('students')
+          .update({ points: student.points + pointsChange })
+          .eq('id', studentId)
+          .select('points')
+          .single()
+        attendanceRecords.value = attendanceRecords.value.filter(a => a.id !== existing.id)
+        if (updatedStudent) student.points = updatedStudent.points
+      }
     } else {
-      const onTime = true
-
-      const { data } = await supabase
+      // Grey → Green: award on_time points
+      const { data, error } = await supabase
         .from('attendance')
         .insert({
           student_id: studentId,
           date,
-          on_time: onTime
+          on_time: true
         })
         .select()
         .single()
 
-      await supabase
+      if (error) {
+        console.error('Attendance insert failed:', error)
+        return
+      }
+
+      const { data: updatedStudent } = await supabase
         .from('students')
-        .update({ points: student.points + 1 })
+        .update({ points: student.points + settings.value.points_on_time })
         .eq('id', studentId)
+        .select('points')
+        .single()
 
       if (data) {
         attendanceRecords.value.push(data)
       }
-
-      student.points += 1
+      if (updatedStudent) student.points = updatedStudent.points
     }
 
     await checkWeeklyBonus(studentId)
   } catch (err) {
     console.error('Error toggling attendance:', err)
+  } finally {
+    processingAttendance.value.delete(lockKey)
   }
 }
 
@@ -158,31 +258,43 @@ const checkWeeklyBonus = async (studentId: string) => {
   const student = students.value.find(s => s.id === studentId)
   if (!student) return
 
-  const weekAttendance = weekDates.value.map(date => getAttendance(studentId, date))
+  const weekStart = weekDates.value[0]
+  const alreadyAwarded = weeklyBonuses.value.some(
+    b => b.student_id === studentId && b.week_start_date === weekStart
+  )
+
+  if (alreadyAwarded) return
+
+  const studentWeekDates = getStudentWeekDates(student)
+  const weekAttendance = studentWeekDates.map(date => getAttendance(studentId, date))
 
   if (weekAttendance.every(a => a !== undefined)) {
-    const allOnTime = weekAttendance.every(a => a?.on_time)
-    const allLate = weekAttendance.every(a => !a?.on_time)
+    const allOnTime = weekAttendance.every(a => a?.on_time === true)
 
     if (allOnTime) {
+      const newPoints = student.points + 5
       await supabase
         .from('students')
-        .update({ points: student.points + 5 })
+        .update({ points: newPoints })
         .eq('id', studentId)
-      student.points += 5
-    } else if (allLate) {
+
       await supabase
-        .from('students')
-        .update({ points: Math.max(0, student.points - 5) })
-        .eq('id', studentId)
-      student.points = Math.max(0, student.points - 5)
+        .from('weekly_bonuses')
+        .insert({
+          student_id: studentId,
+          week_start_date: weekStart
+        })
+
+      weeklyBonuses.value.push({ student_id: studentId, week_start_date: weekStart })
+      student.points = newPoints
+      celebrate()
+      console.log('Perfecte week! +5 punten en confetti 🎉')
     }
   }
 }
 
 const addStudent = async (name: string) => {
   if (!user.value) return
-
   try {
     const { data } = await supabase
       .from('students')
@@ -193,7 +305,6 @@ const addStudent = async (name: string) => {
       })
       .select()
       .single()
-
     if (data) {
       students.value.push(data)
       showAddModal.value = false
@@ -207,15 +318,13 @@ const deleteStudent = async (studentId: string) => {
   if (!confirm('Weet je zeker dat je deze leerling wilt verwijderen?')) {
     return
   }
-
   try {
     await supabase
       .from('students')
       .delete()
       .eq('id', studentId)
-
-    students.value = students.value.filter((s: Student) => s.id !== studentId)
-    attendanceRecords.value = attendanceRecords.value.filter((a: Attendance) => a.student_id !== studentId)
+    students.value = students.value.filter(s => s.id !== studentId)
+    attendanceRecords.value = attendanceRecords.value.filter(a => a.student_id !== studentId)
   } catch (err) {
     console.error('Error deleting student:', err)
   }
@@ -224,6 +333,7 @@ const deleteStudent = async (studentId: string) => {
 const handleSignOut = async () => {
   try {
     await signOut()
+    router.push('/login')
   } catch (err) {
     console.error('Error signing out:', err)
   }
@@ -232,158 +342,22 @@ const handleSignOut = async () => {
 const changeWeek = async (offset: number) => {
   currentWeekOffset.value += offset
   await loadAttendance()
+  await loadWeeklyBonuses()
 }
 
 const goToCurrentWeek = async () => {
   currentWeekOffset.value = 0
   await loadAttendance()
-}
-
-const loadRewards = async () => {
-  if (!user.value) return
-
-  const { data } = await supabase
-    .from('rewards')
-    .select('*')
-    .eq('teacher_id', user.value.id)
-    .order('points_required', { ascending: true })
-
-  if (data) {
-    rewards.value = data
-  }
-}
-
-const loadStudentRewards = async () => {
-  if (!user.value) return
-
-  const { data } = await supabase
-    .from('student_rewards')
-    .select(`
-      *,
-      reward:rewards(*)
-    `)
-    .order('assigned_at', { ascending: false })
-
-  if (data) {
-    studentRewards.value = data
-  }
-}
-
-const getStudentRewards = (studentId: string) => {
-  return studentRewards.value.filter(sr => sr.student_id === studentId)
-}
-
-const selectedStudent = computed(() => {
-  return students.value.find(s => s.id === selectedStudentId.value)
-})
-
-const openRewardModal = (studentId: string) => {
-  selectedStudentId.value = studentId
-  showRewardModal.value = true
-}
-
-const assignReward = async (rewardId: string) => {
-  if (!selectedStudentId.value) return
-
-  try {
-    const { data } = await supabase
-      .from('student_rewards')
-      .insert({
-        student_id: selectedStudentId.value,
-        reward_id: rewardId,
-        redeemed: false
-      })
-      .select(`
-        *,
-        reward:rewards(*)
-      `)
-      .single()
-
-    if (data) {
-      studentRewards.value.push(data)
-      showRewardModal.value = false
-      selectedStudentId.value = null
-    }
-  } catch (err) {
-    console.error('Error assigning reward:', err)
-  }
-}
-
-const createAndAssignReward = async (
-  name: string,
-  description: string,
-  pointsRequired: number,
-  icon: string
-) => {
-  if (!user.value || !selectedStudentId.value) return
-
-  try {
-    const { data: rewardData } = await supabase
-      .from('rewards')
-      .insert({
-        teacher_id: user.value.id,
-        name,
-        description,
-        points_required: pointsRequired,
-        icon
-      })
-      .select()
-      .single()
-
-    if (rewardData) {
-      rewards.value.push(rewardData)
-      await assignReward(rewardData.id)
-    }
-  } catch (err) {
-    console.error('Error creating reward:', err)
-  }
-}
-
-const toggleRewardRedeemed = async (studentRewardId: string) => {
-  const studentReward = studentRewards.value.find(sr => sr.id === studentRewardId)
-  if (!studentReward) return
-
-  try {
-    const newRedeemed = !studentReward.redeemed
-    await supabase
-      .from('student_rewards')
-      .update({
-        redeemed: newRedeemed,
-        redeemed_at: newRedeemed ? new Date().toISOString() : null
-      })
-      .eq('id', studentRewardId)
-
-    studentReward.redeemed = newRedeemed
-    studentReward.redeemed_at = newRedeemed ? new Date().toISOString() : null
-  } catch (err) {
-    console.error('Error toggling reward:', err)
-  }
-}
-
-const removeReward = async (studentRewardId: string) => {
-  if (!confirm('Weet je zeker dat je deze beloning wilt verwijderen?')) {
-    return
-  }
-
-  try {
-    await supabase
-      .from('student_rewards')
-      .delete()
-      .eq('id', studentRewardId)
-
-    studentRewards.value = studentRewards.value.filter(sr => sr.id !== studentRewardId)
-  } catch (err) {
-    console.error('Error removing reward:', err)
-  }
+  await loadWeeklyBonuses()
 }
 
 onMounted(async () => {
   isLoading.value = true
+  await loadSettings()
   await loadTeacherInfo()
   await loadStudents()
   await loadAttendance()
-  await loadRewards()
-  await loadStudentRewards()
+  await loadWeeklyBonuses()
   isLoading.value = false
 })
 </script>
@@ -406,14 +380,17 @@ onMounted(async () => {
             </div>
           </div>
         </div>
-        <button @click="handleSignOut" class="logout-btn">
-          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
-            <polyline points="16 17 21 12 16 7"></polyline>
-            <line x1="21" y1="12" x2="9" y2="12"></line>
-          </svg>
-          Uitloggen
-        </button>
+        <div class="header-right">
+          <NavMenu />
+          <button @click="handleSignOut" class="logout-btn">
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
+              <polyline points="16 17 21 12 16 7"></polyline>
+              <line x1="21" y1="12" x2="9" y2="12"></line>
+            </svg>
+            Uitloggen
+          </button>
+        </div>
       </div>
     </header>
 
@@ -498,15 +475,11 @@ onMounted(async () => {
             v-for="student in students"
             :key="student.id"
             :student="student"
-            :week-dates="weekDates"
-            :day-names="dayNames"
-            :student-rewards="getStudentRewards(student.id)"
+            :week-dates="getStudentWeekDates(student)"
+            :day-names="getStudentDayNames(student)"
             :get-attendance="getAttendance"
             @toggle-attendance="toggleAttendance"
             @delete-student="deleteStudent"
-            @assign-reward="openRewardModal"
-            @toggle-reward-redeemed="toggleRewardRedeemed"
-            @remove-reward="removeReward"
           />
         </div>
       </div>
@@ -516,15 +489,6 @@ onMounted(async () => {
       v-if="showAddModal"
       @add="addStudent"
       @close="showAddModal = false"
-    />
-
-    <AssignRewardModal
-      v-if="showRewardModal && selectedStudent"
-      :student="selectedStudent"
-      :available-rewards="rewards"
-      @assign="assignReward"
-      @create-and-assign="createAndAssignReward"
-      @close="showRewardModal = false; selectedStudentId = null"
     />
   </div>
 </template>
@@ -551,6 +515,13 @@ onMounted(async () => {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 2rem;
+}
+
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
 }
 
 .logo-section {
@@ -782,7 +753,7 @@ h1 {
 
 .week-header {
   display: grid;
-  grid-template-columns: 280px 1fr 100px;
+  grid-template-columns: 280px 1fr 80px;
   gap: 1rem;
   padding: 1.25rem;
   background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
@@ -818,7 +789,7 @@ h1 {
 
 @media (max-width: 1024px) {
   .week-header {
-    grid-template-columns: 200px 1fr 90px;
+    grid-template-columns: 200px 1fr 80px;
     gap: 0.75rem;
     font-size: 0.75rem;
   }
@@ -846,6 +817,10 @@ h1 {
     flex-direction: column;
     gap: 1rem;
     align-items: stretch;
+  }
+
+  .header-right {
+    flex-direction: column;
   }
 
   .logo-section {
