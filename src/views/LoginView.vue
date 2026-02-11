@@ -6,7 +6,7 @@ const router = useRouter()
 
 const handleSuccess = () => {
   console.log('Login success, navigating to dashboard...')
-  router.push('/')
+  router.push('/dashboard')
 }
 </script>
 

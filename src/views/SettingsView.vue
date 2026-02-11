@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { supabase } from '../composables/supabase'
 import { useAuth } from '../composables/useAuth'
 import { useToast } from '../composables/useToast'
 import NavMenu from '../components/NavMenu.vue'
 
+const router = useRouter()
 const { user, signOut } = useAuth()
 const { showToast } = useToast()
 const teacherName = ref('')
@@ -104,7 +106,12 @@ const saveSettings = async () => {
 }
 
 const handleSignOut = async () => {
-  await signOut()
+  try {
+    await signOut()
+    router.push('/login')
+  } catch (err) {
+    console.error('Error signing out:', err)
+  }
 }
 
 onMounted(async () => {

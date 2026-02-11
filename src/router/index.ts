@@ -54,8 +54,10 @@ router.beforeEach(async (to, _, next) => {
   const requiresAuth = to.matched.some(record => record.meta.requiresAuth);
 
   if (requiresAuth && !session) {
+    console.log('Auth required but no session, redirecting to login');
     next('/login');
   } else if (to.path === '/login' && session) {
+    console.log('Already logged in, redirecting to dashboard');
     next('/dashboard');
   } else {
     next();

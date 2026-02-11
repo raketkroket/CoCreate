@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
+import { useRouter } from 'vue-router'
 import { supabase } from '../composables/supabase'
 import type { Student, Attendance } from '../composables/supabase'
 import { useAuth } from '../composables/useAuth'
 import { useConfetti } from '../composables/useConfetti'
 import NavMenu from '../components/NavMenu.vue'
 
+const router = useRouter()
 const { user, signOut } = useAuth()
 const { celebrate } = useConfetti()
 const teacherName = ref('')
@@ -80,7 +82,12 @@ const topThree = computed(() => leaderboard.value.slice(0, 3))
 const restOfLeaderboard = computed(() => leaderboard.value.slice(3))
 
 const handleSignOut = async () => {
-  await signOut()
+  try {
+    await signOut()
+    router.push('/login')
+  } catch (err) {
+    console.error('Error signing out:', err)
+  }
 }
 
 const changePeriod = async (period: string) => {

@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
+import { useRouter } from 'vue-router'
 import { supabase } from '../composables/supabase'
 import type { Student, Attendance } from '../composables/supabase'
 import { useAuth } from '../composables/useAuth'
 import NavMenu from '../components/NavMenu.vue'
 
+const router = useRouter()
 const { user, signOut } = useAuth()
 const teacherName = ref('')
 const students = ref<Student[]>([])
@@ -124,7 +126,12 @@ const weeklyTrends = computed(() => {
 })
 
 const handleSignOut = async () => {
-  await signOut()
+  try {
+    await signOut()
+    router.push('/login')
+  } catch (err) {
+    console.error('Error signing out:', err)
+  }
 }
 
 const changeTimeframe = async (timeframe: string) => {
