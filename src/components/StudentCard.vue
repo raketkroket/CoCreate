@@ -84,6 +84,12 @@ const gridColumns = computed(() => props.weekDates.length)
           </div>
           <span class="progress-label">{{ pointsProgress.nextMilestone }} punten</span>
         </div>
+        <div v-if="studentRewards && studentRewards.length > 0" class="student-rewards-badges">
+          <div v-for="studentReward in studentRewards" :key="studentReward.id" class="reward-badge" :title="studentReward.reward?.name">
+            <span class="badge-icon">{{ studentReward.reward?.icon || '🎁' }}</span>
+            <span v-if="studentReward.redeemed" class="badge-check">✓</span>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -116,34 +122,6 @@ const gridColumns = computed(() => props.weekDates.length)
           <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
         </svg>
       </button>
-    </div>
-  </div>
-
-  <div v-if="studentRewards && studentRewards.length > 0" class="rewards-section">
-    <div class="rewards-list">
-      <div v-for="studentReward in studentRewards" :key="studentReward.id" class="reward-item">
-        <span class="reward-icon">{{ studentReward.reward?.icon || '🎁' }}</span>
-        <div class="reward-info">
-          <span class="reward-name">{{ studentReward.reward?.name || 'Beloning' }}</span>
-          <span v-if="studentReward.reward?.description" class="reward-desc">{{ studentReward.reward.description }}</span>
-        </div>
-        <div class="reward-status">
-          <button 
-            @click="emit('toggleRewardRedeemed', studentReward.id)"
-            :class="['status-btn', { redeemed: studentReward.redeemed }]"
-            :title="studentReward.redeemed ? 'Ingewisseld' : 'Niet ingewisseld'"
-          >
-            {{ studentReward.redeemed ? '✓' : '○' }}
-          </button>
-          <button 
-            @click="emit('removeReward', studentReward.id)"
-            class="remove-btn"
-            title="Verwijder beloning"
-          >
-            ×
-          </button>
-        </div>
-      </div>
     </div>
   </div>
 </template>
@@ -417,6 +395,59 @@ const gridColumns = computed(() => props.weekDates.length)
   transform: scale(1.1);
 }
 
+.student-rewards-badges {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  margin-top: 0.5rem;
+}
+
+.reward-badge {
+  position: relative;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+  border: 1px solid #fcd34d;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-size: 0.9rem;
+}
+
+.reward-badge:hover {
+  transform: scale(1.15);
+  box-shadow: 0 2px 8px rgba(217, 119, 6, 0.2);
+}
+
+.badge-icon {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.85rem;
+}
+
+.badge-check {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 18px;
+  height: 18px;
+  background: #10b981;
+  border: 2px solid white;
+  border-radius: 50%;
+  color: white;
+  font-size: 0.7rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: bold;
+}
+
 @media (max-width: 1024px) {
   .student-row {
     grid-template-columns: 200px 1fr 80px;
@@ -470,104 +501,5 @@ const gridColumns = computed(() => props.weekDates.length)
   .actions {
     justify-content: flex-start;
   }
-}
-
-.rewards-section {
-  background: #fef3c7;
-  border-top: 1px solid #fde68a;
-  padding: 1rem;
-}
-
-.rewards-list {
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-}
-
-.reward-item {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  background: white;
-  padding: 0.75rem;
-  border-radius: 8px;
-  border: 1px solid #fde68a;
-}
-
-.reward-icon {
-  font-size: 1.5rem;
-  flex-shrink: 0;
-}
-
-.reward-info {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-}
-
-.reward-name {
-  font-weight: 600;
-  color: #92400e;
-  font-size: 0.9rem;
-}
-
-.reward-desc {
-  font-size: 0.75rem;
-  color: #b45309;
-  opacity: 0.8;
-}
-
-.reward-status {
-  display: flex;
-  gap: 0.5rem;
-}
-
-.status-btn {
-  width: 32px;
-  height: 32px;
-  border: 2px solid #fcd34d;
-  border-radius: 6px;
-  background: white;
-  color: #d97706;
-  cursor: pointer;
-  font-weight: bold;
-  transition: all 0.2s ease;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.status-btn:hover {
-  background: #fef3c7;
-  transform: scale(1.05);
-}
-
-.status-btn.redeemed {
-  background: #dcfce7;
-  border-color: #86efac;
-  color: #16a34a;
-}
-
-.remove-btn {
-  width: 32px;
-  height: 32px;
-  border: 2px solid #fee2e2;
-  border-radius: 6px;
-  background: white;
-  color: #dc2626;
-  cursor: pointer;
-  font-size: 1.2rem;
-  font-weight: bold;
-  transition: all 0.2s ease;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  line-height: 1;
-}
-
-.remove-btn:hover {
-  background: #fee2e2;
-  transform: scale(1.05);
 }
 </style>
