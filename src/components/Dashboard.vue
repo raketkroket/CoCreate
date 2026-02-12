@@ -9,6 +9,7 @@ import StudentCard from './StudentCard.vue'
 import AddStudentModal from './AddStudentModal.vue'
 import AssignRewardModal from './AssignRewardModal.vue'
 import NavMenu from './NavMenu.vue'
+import StatCard from './StatCard.vue'
 
 const router = useRouter()
 const { user, signOut } = useAuth()
@@ -385,23 +386,61 @@ const closeRewardModal = () => {
   selectedStudentId.value = null
 }
 
+const selectedStudent = computed(() => {
+  return students.value.find(s => s.id === selectedStudentId.value)
+})
+
+const totalStudents = computed(() => students.value.length)
+
+const attendanceRate = computed(() => {
+  if (students.value.length === 0 || weekDates.value.length === 0) return '0%'
+
+  const totalPossible = students.value.length * weekDates.value.length
+  const totalPresent = attendanceRecords.value.length
+
+  if (totalPossible === 0) return '0%'
+
+  const rate = (totalPresent / totalPossible) * 100
+  return `${Math.round(rate)}%`
+})
+
+const totalPoints = computed(() => {
+  return students.value.reduce((sum, student) => sum + student.points, 0)
+})
+
+const activeRewards = computed(() => {
+  return studentRewards.value.filter(sr => !sr.redeemed).length
+})
+
+const icons = {
+  students: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>',
+  attendance: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 11 12 14 22 4"></polyline><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path></svg>',
+  points: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>',
+  rewards: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 12 20 22 4 22 4 12"></polyline><rect x="2" y="7" width="20" height="5"></rect><line x1="12" y1="22" x2="12" y2="7"></line><path d="M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7z"></path><path d="M12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z"></path></svg>'
+}
+
 const handleAssignReward = async (rewardId: string) => {
   if (!selectedStudentId.value) return
   try {
-    const { error } = await supabase
+    const { data } = await supabase
       .from('student_rewards')
       .insert({
         student_id: selectedStudentId.value,
         reward_id: rewardId,
         redeemed: false
       })
-    if (error) throw error
-    await loadStudentRewards()
-    console.log('Reward assigned successfully')
+      .select(`
+        *,
+        reward:rewards(*)
+      `)
+      .single()
+
+    if (data) {
+      studentRewards.value.push(data)
+      closeRewardModal()
+    }
   } catch (err) {
     console.error('Error assigning reward:', err)
-  } finally {
-    closeRewardModal()
   }
 }
 
@@ -426,22 +465,48 @@ const handleCreateAndAssign = async (
       .single()
     if (createError) throw createError
 
-    const { error: assignError } = await supabase
-      .from('student_rewards')
-      .insert({
-        student_id: selectedStudentId.value,
-        reward_id: newReward.id,
-        redeemed: false
-      })
-    if (assignError) throw assignError
-
-    await loadRewards()
-    await loadStudentRewards()
-    console.log('New reward created and assigned')
+    rewards.value.push(newReward)
+    await handleAssignReward(newReward.id)
   } catch (err) {
     console.error('Error creating/assigning reward:', err)
-  } finally {
-    closeRewardModal()
+  }
+}
+
+const toggleRewardRedeemed = async (studentRewardId: string) => {
+  const studentReward = studentRewards.value.find(sr => sr.id === studentRewardId)
+  if (!studentReward) return
+
+  try {
+    const newRedeemed = !studentReward.redeemed
+    await supabase
+      .from('student_rewards')
+      .update({
+        redeemed: newRedeemed,
+        redeemed_at: newRedeemed ? new Date().toISOString() : null
+      })
+      .eq('id', studentRewardId)
+
+    studentReward.redeemed = newRedeemed
+    studentReward.redeemed_at = newRedeemed ? new Date().toISOString() : null
+  } catch (err) {
+    console.error('Error toggling reward:', err)
+  }
+}
+
+const removeReward = async (studentRewardId: string) => {
+  if (!confirm('Weet je zeker dat je deze beloning wilt verwijderen?')) {
+    return
+  }
+
+  try {
+    await supabase
+      .from('student_rewards')
+      .delete()
+      .eq('id', studentRewardId)
+
+    studentRewards.value = studentRewards.value.filter(sr => sr.id !== studentRewardId)
+  } catch (err) {
+    console.error('Error removing reward:', err)
   }
 }
  
@@ -470,10 +535,10 @@ onMounted(async () => {
                 <path d="M6 12v5c3 3 9 3 12 0v-5"></path>
               </svg>
             </div>
-            <div>
-              <h1>Docenten Dashboard</h1>
-              <p v-if="teacherName" class="welcome">{{ teacherName }}</p>
-            </div>
+          </div>
+          <div>
+            <h1>Docenten Dashboard</h1>
+            <p v-if="teacherName" class="welcome">{{ teacherName }}</p>
           </div>
         </div>
         <div class="header-right">
@@ -526,22 +591,6 @@ onMounted(async () => {
             >
               Vandaag
             </button>
-
-<StudentCard
-  v-for="student in students"
-  :key="student.id"
-  :student="student"
-  :week-dates="getStudentWeekDates(student)"
-  :day-names="getStudentDayNames(student)"
-  :student-rewards="getStudentRewards(student.id)"
-  :get-attendance="getAttendance"
-  @toggle-attendance="toggleAttendance"
-  @delete-student="deleteStudent"
-  @assign-reward="openRewardModal"   
-
-/>
-
-
             
             <button @click="changeWeek(1)" class="nav-btn" title="Volgende week">
               <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -549,6 +598,33 @@ onMounted(async () => {
               </svg>
             </button>
           </div>
+        </div>
+
+        <div v-if="students.length > 0" class="stats-grid">
+          <StatCard
+            title="Totaal Leerlingen"
+            :value="totalStudents"
+            :icon="icons.students"
+            color="blue"
+          />
+          <StatCard
+            title="Aanwezigheid"
+            :value="attendanceRate"
+            :icon="icons.attendance"
+            color="green"
+          />
+          <StatCard
+            title="Totaal Punten"
+            :value="totalPoints"
+            :icon="icons.points"
+            color="purple"
+          />
+          <StatCard
+            title="Actieve Beloningen"
+            :value="activeRewards"
+            :icon="icons.rewards"
+            color="orange"
+          />
         </div>
 
         <div v-if="students.length === 0" class="empty-state">
@@ -589,11 +665,13 @@ onMounted(async () => {
             :student="student"
             :week-dates="getStudentWeekDates(student)"
             :day-names="getStudentDayNames(student)"
+            :student-rewards="getStudentRewards(student.id)"
             :get-attendance="getAttendance"
             @toggle-attendance="toggleAttendance"
             @delete-student="deleteStudent"
-
-            
+            @assign-reward="openRewardModal"
+            @toggle-reward-redeemed="toggleRewardRedeemed"
+            @remove-reward="removeReward"
           />
         </div>
       </div>
@@ -603,32 +681,18 @@ onMounted(async () => {
       v-if="showAddModal"
       @add="addStudent"
       @close="showAddModal = false"
-
-      
     />
 
-    <StudentCard
-  v-for="student in students"
-  :key="student.id"
-  :student="student"
-  :week-dates="getStudentWeekDates(student)"
-  :day-names="getStudentDayNames(student)"
-  :student-rewards="[]"  
-  :get-attendance="getAttendance"
-  @toggle-attendance="toggleAttendance"
-  @delete-student="deleteStudent"
-  @assign-reward="openRewardModal" 
-/>
     <div>
       <AssignRewardModal
-  v-if="showRewardModal && selectedStudentId"
-  :student="students.find(s => s.id === selectedStudentId)!"
-  :available-rewards="rewards"
-  @assign="handleAssignReward"
-  @create-and-assign="handleCreateAndAssign"
-  @close="closeRewardModal"
-/>
-    
+        v-if="showRewardModal && selectedStudent"
+        :student="selectedStudent"
+        :available-rewards="rewards"
+        @assign="handleAssignReward"
+        @create-and-assign="handleCreateAndAssign"
+        @close="closeRewardModal"
+      />
+    </div>
   </div>
 </template>
 
@@ -746,6 +810,25 @@ h1 {
   margin-bottom: 1.5rem;
   gap: 1rem;
   flex-wrap: wrap;
+}
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 1.25rem;
+  margin-bottom: 2rem;
+  animation: fadeInUp 0.6s ease-out;
+}
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .add-btn {
@@ -944,6 +1027,17 @@ h1 {
 
   .week-navigation {
     justify-content: center;
+  }
+
+  .stats-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 1rem;
+  }
+}
+
+@media (max-width: 640px) {
+  .stats-grid {
+    grid-template-columns: 1fr;
   }
 }
 

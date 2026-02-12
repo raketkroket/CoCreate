@@ -7,11 +7,15 @@ const props = defineProps<{
   weekDates: string[]
   dayNames: string[]
   getAttendance: (studentId: string, date: string) => Attendance | undefined
+  studentRewards?: any[]
 }>()
 
 const emit = defineEmits<{
   toggleAttendance: [studentId: string, date: string]
   deleteStudent: [studentId: string]
+  assignReward: [studentId: string]
+  toggleRewardRedeemed: [studentRewardId: string]
+  removeReward: [studentRewardId: string]
 }>()
 
 const getStatusClass = (studentId: string, date: string) => {
@@ -97,12 +101,49 @@ const gridColumns = computed(() => props.weekDates.length)
     </div>
 
     <div class="actions">
+      <button @click="emit('assignReward', student.id)" class="reward-btn" title="Beloning toekennen">
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="20 12 20 22 4 22 4 12"></polyline>
+          <rect x="2" y="7" width="20" height="5"></rect>
+          <line x1="12" y1="22" x2="12" y2="7"></line>
+          <path d="M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7z"></path>
+          <path d="M12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z"></path>
+        </svg>
+      </button>
       <button @click="emit('deleteStudent', student.id)" class="delete-btn" title="Verwijder leerling">
         <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <polyline points="3 6 5 6 21 6"></polyline>
           <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
         </svg>
       </button>
+    </div>
+  </div>
+
+  <div v-if="studentRewards && studentRewards.length > 0" class="rewards-section">
+    <div class="rewards-list">
+      <div v-for="studentReward in studentRewards" :key="studentReward.id" class="reward-item">
+        <span class="reward-icon">{{ studentReward.reward?.icon || '🎁' }}</span>
+        <div class="reward-info">
+          <span class="reward-name">{{ studentReward.reward?.name || 'Beloning' }}</span>
+          <span v-if="studentReward.reward?.description" class="reward-desc">{{ studentReward.reward.description }}</span>
+        </div>
+        <div class="reward-status">
+          <button 
+            @click="emit('toggleRewardRedeemed', studentReward.id)"
+            :class="['status-btn', { redeemed: studentReward.redeemed }]"
+            :title="studentReward.redeemed ? 'Ingewisseld' : 'Niet ingewisseld'"
+          >
+            {{ studentReward.redeemed ? '✓' : '○' }}
+          </button>
+          <button 
+            @click="emit('removeReward', studentReward.id)"
+            class="remove-btn"
+            title="Verwijder beloning"
+          >
+            ×
+          </button>
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -357,6 +398,25 @@ const gridColumns = computed(() => props.weekDates.length)
   transform: scale(1.1);
 }
 
+.reward-btn {
+  width: 40px;
+  height: 40px;
+  border: none;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #fef3c7;
+  color: #d97706;
+}
+
+.reward-btn:hover {
+  background: #fde68a;
+  transform: scale(1.1);
+}
+
 @media (max-width: 1024px) {
   .student-row {
     grid-template-columns: 200px 1fr 80px;
@@ -410,5 +470,104 @@ const gridColumns = computed(() => props.weekDates.length)
   .actions {
     justify-content: flex-start;
   }
+}
+
+.rewards-section {
+  background: #fef3c7;
+  border-top: 1px solid #fde68a;
+  padding: 1rem;
+}
+
+.rewards-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.reward-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  background: white;
+  padding: 0.75rem;
+  border-radius: 8px;
+  border: 1px solid #fde68a;
+}
+
+.reward-icon {
+  font-size: 1.5rem;
+  flex-shrink: 0;
+}
+
+.reward-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.reward-name {
+  font-weight: 600;
+  color: #92400e;
+  font-size: 0.9rem;
+}
+
+.reward-desc {
+  font-size: 0.75rem;
+  color: #b45309;
+  opacity: 0.8;
+}
+
+.reward-status {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.status-btn {
+  width: 32px;
+  height: 32px;
+  border: 2px solid #fcd34d;
+  border-radius: 6px;
+  background: white;
+  color: #d97706;
+  cursor: pointer;
+  font-weight: bold;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.status-btn:hover {
+  background: #fef3c7;
+  transform: scale(1.05);
+}
+
+.status-btn.redeemed {
+  background: #dcfce7;
+  border-color: #86efac;
+  color: #16a34a;
+}
+
+.remove-btn {
+  width: 32px;
+  height: 32px;
+  border: 2px solid #fee2e2;
+  border-radius: 6px;
+  background: white;
+  color: #dc2626;
+  cursor: pointer;
+  font-size: 1.2rem;
+  font-weight: bold;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+
+.remove-btn:hover {
+  background: #fee2e2;
+  transform: scale(1.05);
 }
 </style>
