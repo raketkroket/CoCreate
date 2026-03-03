@@ -32,24 +32,18 @@ export function useAuth() {
       console.log('User created successfully:', authData.user.id)
       user.value = authData.user
 
-      // Wait a moment for the trigger to create the teacher record
-      await new Promise(resolve => setTimeout(resolve, 1000))
-
-      // Verify teacher record was created
-      const { data: teacher, error: teacherError } = await supabase
+      // ensure a corresponding teacher profile exists in our own table
+      const { error: teacherInsertError } = await supabase
         .from('teachers')
-        .select('*')
-        .eq('id', authData.user.id)
-        .maybeSingle()
-
-      console.log('Teacher record check:', { teacher, teacherError })
-
-      if (!teacher) {
-        console.error('Teacher record was not created automatically!')
+        .insert({ id: authData.user.id, username })
+      if (teacherInsertError) {
+        console.error('Failed to create teacher record:', teacherInsertError)
+        // rollback by deleting the auth user? or at least sign out
+        await supabase.auth.signOut()
         throw new Error('Account aanmaken mislukt. Probeer het opnieuw.')
       }
 
-      console.log('Teacher record exists:', teacher)
+      console.log('Teacher record created successfully for user:', authData.user.id)
     }
 
     console.log('=== SIGNUP COMPLETE ===')
