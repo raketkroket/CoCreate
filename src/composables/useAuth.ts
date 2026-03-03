@@ -17,7 +17,8 @@ export function useAuth() {
       options: {
         data: {
           username: username
-        }
+        },
+        emailRedirectTo: window.location.origin
       }
     })
 
@@ -25,9 +26,6 @@ export function useAuth() {
 
     if (authError) {
       console.error('Signup auth error:', authError)
-      // a common failure from the SDK when the URL is wrong or there's no network
-      // connection is just a generic "Failed to fetch".  Replace it with a friendlier
-      // message that points at the environment / CORS configuration.
       if (authError.message === 'Failed to fetch') {
         throw new Error(
           'Kon geen verbinding maken met de authenticatieserver. Controleer de Supabase-URL/ANON_KEY of netwerkinstellingen.'
@@ -38,14 +36,15 @@ export function useAuth() {
 
     if (authData.user) {
       console.log('User created successfully:', authData.user.id)
-      user.value = authData.user
 
-      // The database now has a trigger that automatically inserts a teacher
-      // profile whenever a new row is added to auth.users.  That avoids the
-      // common problem where sign-up returns a user but no session (e.g. when
-      // email confirmation is required), causing the insert below to fail with
-      // a permissions error.  We log a reminder here so upstream callers can
-      // inspect the `teachers` table if something still seems wrong.
+      if (authData.session) {
+        console.log('Session available, user can login immediately')
+        user.value = authData.user
+      } else {
+        console.log('No session - email confirmation may be required')
+        throw new Error('Registratie gelukt! Je kunt nu inloggen met je account.')
+      }
+
       console.log(
         'Teacher profile will be created server‑side; if you see a failure, check the migrations and RLS policies.'
       )

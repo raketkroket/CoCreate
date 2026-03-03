@@ -11,17 +11,20 @@ const email = ref('')
 const password = ref('')
 const username = ref('')
 const error = ref('')
+const successMessage = ref('')
 const isLoading = ref(false)
 
 const { signIn, signUp } = useAuth()
 
 const handleSubmit = async () => {
   error.value = ''
+  successMessage.value = ''
   isLoading.value = true
 
   try {
     if (isLogin.value) {
       await signIn(email.value, password.value)
+      emit('success')
     } else {
       if (!username.value) {
         error.value = 'Gebruikersnaam is verplicht'
@@ -29,10 +32,18 @@ const handleSubmit = async () => {
         return
       }
       await signUp(email.value, password.value, username.value)
+      emit('success')
     }
-    emit('success')
   } catch (e: any) {
-    error.value = e.message || 'Er is iets misgegaan'
+    const message = e.message || 'Er is iets misgegaan'
+
+    if (message.includes('Registratie gelukt')) {
+      successMessage.value = message
+      isLogin.value = true
+      password.value = ''
+    } else {
+      error.value = message
+    }
   } finally {
     isLoading.value = false
   }
@@ -92,6 +103,13 @@ const toggleMode = () => {
             required
             minlength="6"
           />
+        </div>
+
+        <div v-if="successMessage" class="success-message">
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="20 6 9 17 4 12"></polyline>
+          </svg>
+          {{ successMessage }}
         </div>
 
         <div v-if="error" class="error-message">
@@ -219,6 +237,23 @@ input:focus {
   border-color: #3b82f6;
   box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.1);
   background: white;
+}
+
+.success-message {
+  background: linear-gradient(135deg, #d1fae5 0%, #a7f3d0 100%);
+  color: #065f46;
+  padding: 0.875rem 1rem;
+  border-radius: 12px;
+  margin-bottom: 1rem;
+  font-size: 0.9rem;
+  border: 1px solid #6ee7b7;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.success-message svg {
+  flex-shrink: 0;
 }
 
 .error-message {
