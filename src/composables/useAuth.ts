@@ -40,18 +40,15 @@ export function useAuth() {
       console.log('User created successfully:', authData.user.id)
       user.value = authData.user
 
-      // ensure a corresponding teacher profile exists in our own table
-      const { error: teacherInsertError } = await supabase
-        .from('teachers')
-        .insert({ id: authData.user.id, username })
-      if (teacherInsertError) {
-        console.error('Failed to create teacher record:', teacherInsertError)
-        // rollback by deleting the auth user? or at least sign out
-        await supabase.auth.signOut()
-        throw new Error('Account aanmaken mislukt. Probeer het opnieuw.')
-      }
-
-      console.log('Teacher record created successfully for user:', authData.user.id)
+      // The database now has a trigger that automatically inserts a teacher
+      // profile whenever a new row is added to auth.users.  That avoids the
+      // common problem where sign-up returns a user but no session (e.g. when
+      // email confirmation is required), causing the insert below to fail with
+      // a permissions error.  We log a reminder here so upstream callers can
+      // inspect the `teachers` table if something still seems wrong.
+      console.log(
+        'Teacher profile will be created server‑side; if you see a failure, check the migrations and RLS policies.'
+      )
     }
 
     console.log('=== SIGNUP COMPLETE ===')
@@ -81,7 +78,9 @@ export function useAuth() {
     if (data.user) {
       console.log('User logged in:', data.user.id)
 
-      // Verify teacher record exists
+      // Verify teacher record exists (should've been populated by the
+      // trigger).  If this check ever fails it means something went wrong with
+      // the server-side migration or policies.
       const { data: teacher, error: teacherError } = await supabase
         .from('teachers')
         .select('*')
