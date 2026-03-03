@@ -25,6 +25,14 @@ export function useAuth() {
 
     if (authError) {
       console.error('Signup auth error:', authError)
+      // a common failure from the SDK when the URL is wrong or there's no network
+      // connection is just a generic "Failed to fetch".  Replace it with a friendlier
+      // message that points at the environment / CORS configuration.
+      if (authError.message === 'Failed to fetch') {
+        throw new Error(
+          'Kon geen verbinding maken met de authenticatieserver. Controleer de Supabase-URL/ANON_KEY of netwerkinstellingen.'
+        )
+      }
       throw authError
     }
 
@@ -62,6 +70,11 @@ export function useAuth() {
 
     if (error) {
       console.error('Login error:', error)
+      if (error.message === 'Failed to fetch') {
+        throw new Error(
+          'Kon geen verbinding maken met de authenticatieserver. Controleer de Supabase-URL/ANON_KEY of netwerkinstellingen.'
+        )
+      }
       throw error
     }
 
