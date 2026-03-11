@@ -1,13 +1,28 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
-import { supabase } from '../composables/supabase'
-import type { Student, Attendance } from '../composables/supabase'
-import { useAuth } from '../composables/useAuth'
+import { useApi } from '../composables/useApi'
+import { useAuthApi } from '../composables/useAuthApi'
 import NavMenu from '../components/NavMenu.vue'
 
+interface Student {
+  id: string
+  name: string
+  email: string
+  points: number
+  teacher_id: string
+}
+
+interface Attendance {
+  id: string
+  student_id: string
+  date: string
+  on_time: boolean
+}
+
 const router = useRouter()
-const { user, signOut } = useAuth()
+const { user, signOut } = useAuthApi()
+const api = useApi()
 const teacherName = ref('')
 const students = ref<Student[]>([])
 const allAttendance = ref<Attendance[]>([])
@@ -17,38 +32,36 @@ const searchQuery = ref('')
 
 const loadTeacherInfo = async () => {
   if (!user.value) return
-  const { data } = await supabase
-    .from('teachers')
-    .select('username')
-    .eq('id', user.value.id)
-    .maybeSingle()
-  if (data) teacherName.value = data.username
+  try {
+    const data = await api.getTeacher()
+    teacherName.value = data.username
+  } catch (error) {
+    console.error('Error loading teacher info:', error)
+  }
 }
 
 const loadStudents = async () => {
   if (!user.value) return
-  const { data } = await supabase
-    .from('students')
-    .select('*')
-    .eq('teacher_id', user.value.id)
-    .order('name', { ascending: true })
-  if (data) students.value = data
+  try {
+    const data = await api.getStudents()
+    students.value = data.sort((a, b) => a.name.localeCompare(b.name))
+  } catch (error) {
+    console.error('Error loading students:', error)
+  }
 }
 
 const loadAllAttendance = async () => {
   if (!user.value || students.value.length === 0) return
-
-  const thirtyDaysAgo = new Date()
-  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
-
-  const { data } = await supabase
-    .from('attendance')
-    .select('*')
-    .in('student_id', students.value.map(s => s.id))
-    .gte('date', thirtyDaysAgo.toISOString().split('T')[0])
-    .order('date', { ascending: false })
-
-  if (data) allAttendance.value = data
+  try {
+    const thirtyDaysAgo = new Date()
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
+    const startDate = thirtyDaysAgo.toISOString().split('T')[0]
+    
+    const data = await api.getAttendance(startDate, new Date().toISOString().split('T')[0])
+    allAttendance.value = data.reverse()
+  } catch (error) {
+    console.error('Error loading attendance:', error)
+  }
 }
 
 const filteredStudents = computed(() => {

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import type { Student, Attendance } from '../composables/supabase'
+import type { Student, Attendance } from '../composables/types'
 
 const props = defineProps<{
   student: Student

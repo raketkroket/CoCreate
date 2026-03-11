@@ -1,13 +1,14 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { supabase } from '../composables/supabase'
-import { useAuth } from '../composables/useAuth'
+import { useApi } from '../composables/useApi'
+import { useAuthApi } from '../composables/useAuthApi'
 import { useToast } from '../composables/useToast'
 import NavMenu from '../components/NavMenu.vue'
 
 const router = useRouter()
-const { user, signOut } = useAuth()
+const { user, signOut } = useAuthApi()
+const api = useApi()
 const { showToast } = useToast()
 const teacherName = ref('')
 const isLoading = ref(true)
@@ -24,24 +25,18 @@ const settings = ref({
 
 const loadTeacherInfo = async () => {
   if (!user.value) return
-  const { data } = await supabase
-    .from('teachers')
-    .select('username')
-    .eq('id', user.value.id)
-    .maybeSingle()
-  if (data) teacherName.value = data.username
+  try {
+    const data = await api.getTeacher()
+    teacherName.value = data.username
+  } catch (error) {
+    console.error('Error loading teacher info:', error)
+  }
 }
 
 const loadSettings = async () => {
   if (!user.value) return
-
-  const { data } = await supabase
-    .from('teacher_settings')
-    .select('*')
-    .eq('user_id', user.value.id)
-    .maybeSingle()
-
-  if (data) {
+  try {
+    const data = await api.getTeacherSettings()
     settings.value = {
       class_name: data.class_name,
       class_year: data.class_year,
@@ -50,6 +45,8 @@ const loadSettings = async () => {
       points_late: data.points_late,
       points_absent: data.points_absent
     }
+  } catch (error) {
+    console.error('Error loading settings:', error)
   }
 }
 
@@ -59,42 +56,14 @@ const saveSettings = async () => {
   isSaving.value = true
 
   try {
-    const { data: existing } = await supabase
-      .from('teacher_settings')
-      .select('id')
-      .eq('user_id', user.value.id)
-      .maybeSingle()
-
-    if (existing) {
-      const { error } = await supabase
-        .from('teacher_settings')
-        .update({
-          class_name: settings.value.class_name,
-          class_year: settings.value.class_year,
-          class_subject: settings.value.class_subject,
-          points_on_time: settings.value.points_on_time,
-          points_late: settings.value.points_late,
-          points_absent: settings.value.points_absent,
-          updated_at: new Date().toISOString()
-        })
-        .eq('user_id', user.value.id)
-
-      if (error) throw error
-    } else {
-      const { error } = await supabase
-        .from('teacher_settings')
-        .insert({
-          user_id: user.value.id,
-          class_name: settings.value.class_name,
-          class_year: settings.value.class_year,
-          class_subject: settings.value.class_subject,
-          points_on_time: settings.value.points_on_time,
-          points_late: settings.value.points_late,
-          points_absent: settings.value.points_absent
-        })
-
-      if (error) throw error
-    }
+    await api.updateTeacherSettings({
+      class_name: settings.value.class_name,
+      class_year: settings.value.class_year,
+      class_subject: settings.value.class_subject,
+      points_on_time: settings.value.points_on_time,
+      points_late: settings.value.points_late,
+      points_absent: settings.value.points_absent
+    })
 
     showToast('Instellingen opgeslagen', 'success')
   } catch (error) {

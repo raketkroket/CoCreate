@@ -1,5 +1,4 @@
 import { createRouter, createWebHistory, RouteRecordRaw } from 'vue-router';
-import { supabase } from '../composables/supabase';
 
 const routes: RouteRecordRaw[] = [
   {
@@ -49,15 +48,17 @@ const router = createRouter({
   routes
 });
 
-router.beforeEach(async (to, _, next) => {
-  const { data: { session } } = await supabase.auth.getSession();
+router.beforeEach((to, from, next) => {
+  const token = localStorage.getItem('token');
   const requiresAuth = to.matched.some(record => record.meta.requiresAuth);
 
-  if (requiresAuth && !session) {
-    console.log('Auth required but no session, redirecting to login');
+  console.log(`[Router] to: ${to.path}, requires auth: ${requiresAuth}, has token: ${!!token}`);
+
+  if (requiresAuth && !token) {
+    console.log('[Router] Redirecting to login - auth required but no token');
     next('/login');
-  } else if (to.path === '/login' && session) {
-    console.log('Already logged in, redirecting to dashboard');
+  } else if (to.path === '/login' && token) {
+    console.log('[Router] Already logged in, redirecting to dashboard');
     next('/dashboard');
   } else {
     next();

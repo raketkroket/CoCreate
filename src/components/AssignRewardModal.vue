@@ -1,6 +1,22 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
-import type { Student, Reward } from '../composables/supabase'
+
+interface Student {
+  id: string
+  name: string
+  email: string
+  points: number
+  teacher_id: string
+}
+
+interface Reward {
+  id: string
+  name: string
+  description: string
+  points_required: number
+  icon: string
+  teacher_id: string
+}
 
 const props = defineProps<{
   student: Student

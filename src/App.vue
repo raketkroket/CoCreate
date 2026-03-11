@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onMounted } from 'vue'
-import { useAuth } from './composables/useAuth'
+import { useAuth } from './composables/useAuthApi'
 import ToastContainer from './components/ToastContainer.vue'
 
 const { loading, initAuth } = useAuth()

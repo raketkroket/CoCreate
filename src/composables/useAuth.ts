@@ -32,24 +32,39 @@ export function useAuth() {
       console.log('User created successfully:', authData.user.id)
       user.value = authData.user
 
-      // Wait a moment for the trigger to create the teacher record
-      await new Promise(resolve => setTimeout(resolve, 1000))
+      // Wait for trigger to create teacher record - retry if necessary
+      let teacher = null
+      let teacherError = null
+      let attempts = 0
+      const maxAttempts = 5
+      const delay = 500 // milliseconds
 
-      // Verify teacher record was created
-      const { data: teacher, error: teacherError } = await supabase
-        .from('teachers')
-        .select('*')
-        .eq('id', authData.user.id)
-        .maybeSingle()
+      while (attempts < maxAttempts && !teacher) {
+        if (attempts > 0) {
+          await new Promise(resolve => setTimeout(resolve, delay))
+        }
+        const result = await supabase
+          .from('teachers')
+          .select('*')
+          .eq('id', authData.user.id)
+          .maybeSingle()
 
-      console.log('Teacher record check:', { teacher, teacherError })
+        console.log(`Teacher record check attempt ${attempts + 1}:`, result)
 
-      if (!teacher) {
-        console.error('Teacher record was not created automatically!')
-        throw new Error('Account aanmaken mislukt. Probeer het opnieuw.')
+        teacher = result.data
+        teacherError = result.error
+
+        if (!teacher) {
+          attempts++
+        }
       }
 
-      console.log('Teacher record exists:', teacher)
+      if (!teacher) {
+        console.error('Teacher record was not created automatically!', { teacherError })
+        throw new Error('Account aanmaken mislukt. De leeraar-gegevens kon niet ingesteld worden. Probeer het opnieuw of neem contact op met support.')
+      }
+
+      console.log('Teacher record created:', teacher)
     }
 
     console.log('=== SIGNUP COMPLETE ===')
