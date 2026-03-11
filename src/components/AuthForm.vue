@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
-import { useAuth } from '../composables/useAuthApi'
+import { ref } from 'vue'
+import { useAuth } from '../composables/useAuth'
 
 const emit = defineEmits<{
   success: []
@@ -9,76 +9,41 @@ const emit = defineEmits<{
 const isLogin = ref(true)
 const email = ref('')
 const password = ref('')
-const passwordConfirm = ref('')
 const username = ref('')
 const error = ref('')
+const successMessage = ref('')
 const isLoading = ref(false)
 
 const { signIn, signUp } = useAuth()
 
-const isValidEmail = computed(() => {
-  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-  return emailRegex.test(email.value)
-})
-
-const isValidPassword = computed(() => {
-  return password.value.length >= 6
-})
-
-const passwordsMatch = computed(() => {
-  return password.value === passwordConfirm.value
-})
-
-const isFormValid = computed(() => {
-  if (isLogin.value) {
-    return isValidEmail.value && isValidPassword.value
-  } else {
-    return username.value.trim() && isValidEmail.value && isValidPassword.value && passwordsMatch.value
-  }
-})
-
 const handleSubmit = async () => {
   error.value = ''
-  
-  // Validate form
-  if (!isLogin.value) {
-    if (!username.value.trim()) {
-      error.value = 'Gebruikersnaam is verplicht'
-      return
-    }
-    if (username.value.trim().length < 2) {
-      error.value = 'Gebruikersnaam moet minstens 2 karakters lang zijn'
-      return
-    }
-  }
-  
-  if (!isValidEmail.value) {
-    error.value = 'Voer een geldig e-mailadres in'
-    return
-  }
-  
-  if (!isValidPassword.value) {
-    error.value = 'Wachtwoord moet minstens 6 karakters lang zijn'
-    return
-  }
-  
-  if (!isLogin.value && !passwordsMatch.value) {
-    error.value = 'Wachtwoorden komen niet overeen'
-    return
-  }
-  
+  successMessage.value = ''
   isLoading.value = true
 
   try {
     if (isLogin.value) {
       await signIn(email.value, password.value)
+      emit('success')
     } else {
-      await signUp(email.value, password.value, username.value.trim())
+      if (!username.value) {
+        error.value = 'Gebruikersnaam is verplicht'
+        isLoading.value = false
+        return
+      }
+      await signUp(email.value, password.value, username.value)
+      emit('success')
     }
-    emit('success')
   } catch (e: any) {
-    error.value = e.message || 'Er is iets misgegaan. Probeer het opnieuw.'
-    console.error('Auth error:', e)
+    const message = e.message || 'Er is iets misgegaan'
+
+    if (message.includes('Registratie gelukt')) {
+      successMessage.value = message
+      isLogin.value = true
+      password.value = ''
+    } else {
+      error.value = message
+    }
   } finally {
     isLoading.value = false
   }
@@ -89,7 +54,6 @@ const toggleMode = () => {
   error.value = ''
   email.value = ''
   password.value = ''
-  passwordConfirm.value = ''
   username.value = ''
 }
 </script>
@@ -115,9 +79,7 @@ const toggleMode = () => {
             type="text"
             placeholder="Vul je gebruikersnaam in"
             required
-            minlength="2"
           />
-          <span v-if="!isLogin && username && username.length < 2" class="input-hint error">Min. 2 karakters</span>
         </div>
 
         <div class="input-group">
@@ -129,7 +91,6 @@ const toggleMode = () => {
             placeholder="docent@school.nl"
             required
           />
-          <span v-if="email && !isValidEmail" class="input-hint error">Ongeldig e-mailadres</span>
         </div>
 
         <div class="input-group">
@@ -142,20 +103,13 @@ const toggleMode = () => {
             required
             minlength="6"
           />
-          <span v-if="password && !isValidPassword" class="input-hint error">Min. 6 karakters</span>
         </div>
 
-        <div v-if="!isLogin" class="input-group">
-          <label for="password-confirm">Bevestig wachtwoord</label>
-          <input
-            id="password-confirm"
-            v-model="passwordConfirm"
-            type="password"
-            placeholder="••••••••"
-            required
-            minlength="6"
-          />
-          <span v-if="passwordConfirm && !passwordsMatch" class="input-hint error">Wachtwoorden komen niet overeen</span>
+        <div v-if="successMessage" class="success-message">
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="20 6 9 17 4 12"></polyline>
+          </svg>
+          {{ successMessage }}
         </div>
 
         <div v-if="error" class="error-message">
@@ -167,7 +121,7 @@ const toggleMode = () => {
           {{ error }}
         </div>
 
-        <button type="submit" class="submit-btn" :disabled="isLoading || !isFormValid">
+        <button type="submit" class="submit-btn" :disabled="isLoading">
           <span v-if="isLoading" class="loading-spinner"></span>
           {{ isLoading ? 'Bezig...' : (isLogin ? 'Inloggen' : 'Registreren') }}
         </button>
@@ -285,15 +239,21 @@ input:focus {
   background: white;
 }
 
-.input-hint {
-  display: block;
-  font-size: 0.8rem;
-  margin-top: 0.25rem;
-  font-weight: 500;
+.success-message {
+  background: linear-gradient(135deg, #d1fae5 0%, #a7f3d0 100%);
+  color: #065f46;
+  padding: 0.875rem 1rem;
+  border-radius: 12px;
+  margin-bottom: 1rem;
+  font-size: 0.9rem;
+  border: 1px solid #6ee7b7;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
 }
 
-.input-hint.error {
-  color: #dc2626;
+.success-message svg {
+  flex-shrink: 0;
 }
 
 .error-message {

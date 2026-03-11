@@ -17,7 +17,8 @@ export function useAuth() {
       options: {
         data: {
           username: username
-        }
+        },
+        emailRedirectTo: window.location.origin
       }
     })
 
@@ -25,46 +26,28 @@ export function useAuth() {
 
     if (authError) {
       console.error('Signup auth error:', authError)
+      if (authError.message === 'Failed to fetch') {
+        throw new Error(
+          'Kon geen verbinding maken met de authenticatieserver. Controleer de Supabase-URL/ANON_KEY of netwerkinstellingen.'
+        )
+      }
       throw authError
     }
 
     if (authData.user) {
       console.log('User created successfully:', authData.user.id)
-      user.value = authData.user
 
-      // Wait for trigger to create teacher record - retry if necessary
-      let teacher = null
-      let teacherError = null
-      let attempts = 0
-      const maxAttempts = 5
-      const delay = 500 // milliseconds
-
-      while (attempts < maxAttempts && !teacher) {
-        if (attempts > 0) {
-          await new Promise(resolve => setTimeout(resolve, delay))
-        }
-        const result = await supabase
-          .from('teachers')
-          .select('*')
-          .eq('id', authData.user.id)
-          .maybeSingle()
-
-        console.log(`Teacher record check attempt ${attempts + 1}:`, result)
-
-        teacher = result.data
-        teacherError = result.error
-
-        if (!teacher) {
-          attempts++
-        }
+      if (authData.session) {
+        console.log('Session available, user can login immediately')
+        user.value = authData.user
+      } else {
+        console.log('No session - email confirmation may be required')
+        throw new Error('Registratie gelukt! Je kunt nu inloggen met je account.')
       }
 
-      if (!teacher) {
-        console.error('Teacher record was not created automatically!', { teacherError })
-        throw new Error('Account aanmaken mislukt. De leeraar-gegevens kon niet ingesteld worden. Probeer het opnieuw of neem contact op met support.')
-      }
-
-      console.log('Teacher record created:', teacher)
+      console.log(
+        'Teacher profile will be created server‑side; if you see a failure, check the migrations and RLS policies.'
+      )
     }
 
     console.log('=== SIGNUP COMPLETE ===')
@@ -83,13 +66,20 @@ export function useAuth() {
 
     if (error) {
       console.error('Login error:', error)
+      if (error.message === 'Failed to fetch') {
+        throw new Error(
+          'Kon geen verbinding maken met de authenticatieserver. Controleer de Supabase-URL/ANON_KEY of netwerkinstellingen.'
+        )
+      }
       throw error
     }
 
     if (data.user) {
       console.log('User logged in:', data.user.id)
 
-      // Verify teacher record exists
+      // Verify teacher record exists (should've been populated by the
+      // trigger).  If this check ever fails it means something went wrong with
+      // the server-side migration or policies.
       const { data: teacher, error: teacherError } = await supabase
         .from('teachers')
         .select('*')
