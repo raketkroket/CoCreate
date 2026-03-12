@@ -44,34 +44,34 @@ router.get('/settings', async (req, res) => {
 // Update teacher settings
 router.patch('/settings', async (req, res) => {
   try {
-    const { className, classYear, classSubject, pointsOnTime, pointsLate, pointsAbsent } = req.body
+    const { class_name, class_year, class_subject, points_on_time, points_late, points_absent } = req.body
 
     const fields = []
     const values = []
 
-    if (className !== undefined) {
+    if (class_name !== undefined) {
       fields.push(`class_name = ?`)
-      values.push(className)
+      values.push(class_name)
     }
-    if (classYear !== undefined) {
+    if (class_year !== undefined) {
       fields.push(`class_year = ?`)
-      values.push(classYear)
+      values.push(class_year)
     }
-    if (classSubject !== undefined) {
+    if (class_subject !== undefined) {
       fields.push(`class_subject = ?`)
-      values.push(classSubject)
+      values.push(class_subject)
     }
-    if (pointsOnTime !== undefined) {
+    if (points_on_time !== undefined) {
       fields.push(`points_on_time = ?`)
-      values.push(pointsOnTime)
+      values.push(points_on_time)
     }
-    if (pointsLate !== undefined) {
+    if (points_late !== undefined) {
       fields.push(`points_late = ?`)
-      values.push(pointsLate)
+      values.push(points_late)
     }
-    if (pointsAbsent !== undefined) {
+    if (points_absent !== undefined) {
       fields.push(`points_absent = ?`)
-      values.push(pointsAbsent)
+      values.push(points_absent)
     }
 
     if (fields.length === 0) {

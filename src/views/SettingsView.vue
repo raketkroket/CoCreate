@@ -2,12 +2,12 @@
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useApi } from '../composables/useApi'
-import { useAuthApi } from '../composables/useAuthApi'
+import { useAuth } from '../composables/useAuthApi'
 import { useToast } from '../composables/useToast'
 import NavMenu from '../components/NavMenu.vue'
 
 const router = useRouter()
-const { user, signOut } = useAuthApi()
+const { user, signOut } = useAuth()
 const api = useApi()
 const { showToast } = useToast()
 const teacherName = ref('')

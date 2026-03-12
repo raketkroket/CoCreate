@@ -42,10 +42,17 @@ export function useAuth() {
     console.log('=== INIT AUTH START ===')
     loading.value = true
     try {
-      // Check if token exists
-      if (api.user.value) {
-        user.value = api.user.value
-        console.log('User restored from storage')
+      // Restore token and user from localStorage
+      const token = localStorage.getItem('token')
+      const userData = localStorage.getItem('user')
+      
+      if (token && userData) {
+        try {
+          user.value = JSON.parse(userData)
+          console.log('User restored from storage:', user.value)
+        } catch (e) {
+          console.error('Failed to parse user from storage:', e)
+        }
       }
     } catch (error) {
       console.error('Auth init failed:', error)

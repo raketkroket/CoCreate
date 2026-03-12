@@ -136,4 +136,78 @@ router.delete('/:id', async (req, res) => {
   }
 })
 
+// Check and award weekly bonus (perfect week = +5 points)
+router.post('/weekly-bonus/:studentId', async (req, res) => {
+  try {
+    const { startDate, endDate } = req.body
+
+    // Verify student belongs to teacher
+    const student = await query(
+      'SELECT id, points FROM students WHERE id = ? AND teacher_id = ?',
+      [req.params.studentId, req.user.id]
+    )
+
+    if (student.rows.length === 0) {
+      return res.status(404).json({ error: 'Student not found' })
+    }
+
+    // Check if bonus already awarded for this week
+    const weekStart = startDate.split('T')[0]
+    const existingBonus = await query(
+      'SELECT id FROM weekly_bonuses WHERE student_id = ? AND week_start_date = ?',
+      [req.params.studentId, weekStart]
+    )
+
+    if (existingBonus.rows.length > 0) {
+      return res.json({ message: 'Bonus already awarded for this week' })
+    }
+
+    // Get all attendance records for the week
+    const attendance = await query(
+      `SELECT * FROM attendance 
+       WHERE student_id = ? AND date BETWEEN ? AND ?
+       ORDER BY date ASC`,
+      [req.params.studentId, startDate, endDate]
+    )
+
+    // Check if all are on_time
+    const expectedDays = 5 // Mon-Fri
+    const allOnTime = attendance.rows && attendance.rows.length === expectedDays && 
+                      attendance.rows.every(a => a.on_time)
+
+    if (allOnTime) {
+      // Award 5 bonus points
+      const newPoints = student.rows[0].points + 5
+      await query(
+        'UPDATE students SET points = ? WHERE id = ?',
+        [newPoints, req.params.studentId]
+      )
+
+      // Record the bonus
+      const { v4: uuidv4 } = await import('uuid')
+      await query(
+        `INSERT INTO weekly_bonuses (id, student_id, week_start_date)
+         VALUES (?, ?, ?)`,
+        [uuidv4(), req.params.studentId, weekStart]
+      )
+
+      res.json({ 
+        success: true, 
+        bonusAwarded: true, 
+        message: 'Perfect week! +5 bonus points awarded!',
+        newPoints 
+      })
+    } else {
+      res.json({ 
+        success: true, 
+        bonusAwarded: false, 
+        message: 'Not a perfect week yet'
+      })
+    }
+  } catch (error) {
+    console.error('Error checking weekly bonus:', error)
+    res.status(500).json({ error: 'Failed to check weekly bonus' })
+  }
+})
+
 export default router

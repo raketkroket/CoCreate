@@ -2,7 +2,7 @@
 import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useApi } from '../composables/useApi'
-import { useAuthApi } from '../composables/useAuthApi'
+import { useAuth } from '../composables/useAuthApi'
 import NavMenu from '../components/NavMenu.vue'
 
 interface Student {
@@ -21,7 +21,7 @@ interface Attendance {
 }
 
 const router = useRouter()
-const { user, signOut } = useAuthApi()
+const { user, signOut } = useAuth()
 const api = useApi()
 const teacherName = ref('')
 const students = ref<Student[]>([])

@@ -133,6 +133,13 @@ export function useApi() {
     return apiCall('DELETE', `/attendance/${id}`)
   }
 
+  const checkWeeklyBonus = async (studentId, startDate, endDate) => {
+    return apiCall('POST', `/attendance/weekly-bonus/${studentId}`, {
+      startDate,
+      endDate
+    })
+  }
+
   // Rewards
   const getRewards = async () => {
     return apiCall('GET', '/rewards')
@@ -200,6 +207,7 @@ export function useApi() {
     markAttendance,
     updateAttendance,
     deleteAttendance,
+    checkWeeklyBonus,
 
     // Rewards
     getRewards,

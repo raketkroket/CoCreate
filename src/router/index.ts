@@ -8,6 +8,12 @@ const routes: RouteRecordRaw[] = [
     meta: { requiresAuth: false }
   },
   {
+    path: '/register',
+    name: 'Register',
+    component: () => import('../views/LoginView.vue'),
+    meta: { requiresAuth: false }
+  },
+  {
     path: '/',
     redirect: '/dashboard'
   },
@@ -48,7 +54,16 @@ const router = createRouter({
   routes
 });
 
+// Track if we're in the middle of a route change to prevent loops
+let isNavigating = false;
+
 router.beforeEach((to, from, next) => {
+  // Prevent duplicate navigation
+  if (isNavigating) {
+    next(false);
+    return;
+  }
+
   const token = localStorage.getItem('token');
   const requiresAuth = to.matched.some(record => record.meta.requiresAuth);
 
@@ -56,13 +71,19 @@ router.beforeEach((to, from, next) => {
 
   if (requiresAuth && !token) {
     console.log('[Router] Redirecting to login - auth required but no token');
+    isNavigating = true;
     next('/login');
-  } else if (to.path === '/login' && token) {
+  } else if ((to.path === '/login' || to.path === '/register') && token) {
     console.log('[Router] Already logged in, redirecting to dashboard');
+    isNavigating = true;
     next('/dashboard');
   } else {
     next();
   }
+});
+
+router.afterEach(() => {
+  isNavigating = false;
 });
 
 export default router;

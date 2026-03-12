@@ -207,8 +207,25 @@ const toggleAttendance = async (studentId: string, date: string) => {
 }
 
 const checkWeeklyBonus = async (studentId: string) => {
-  // Simplified - can add complex logic later
-  console.log('Weekly bonus check for', studentId)
+  try {
+    const student = students.value.find(s => s.id === studentId)
+    if (!student) return
+
+    // Get week dates for current week
+    const weekStart = weekDates.value[0]
+    const weekEnd = weekDates.value[weekDates.value.length - 1]
+
+    const result = await api.checkWeeklyBonus(studentId, weekStart, weekEnd)
+    
+    if (result.bonusAwarded) {
+      console.log('✅ Perfect week! +5 bonus points awarded!')
+      student.points = result.newPoints
+      celebrate()
+      alert('🎉 Perfecte week! Je hebt +5 bonuspunten verdiend!')
+    }
+  } catch (err) {
+    console.error('Error checking weekly bonus:', err)
+  }
 }
 
 const addStudent = async (name: string) => {
@@ -217,8 +234,11 @@ const addStudent = async (name: string) => {
     const data = await api.createStudent(name)
     students.value.push(data)
     showAddModal.value = false
-  } catch (err) {
+    console.log('✅ Student added successfully:', data)
+  } catch (err: any) {
+    const errorMsg = err.message || 'Fout bij toevoegen van leerling'
     console.error('Error adding student:', err)
+    alert(`❌ ${errorMsg}`)
   }
 }
 
