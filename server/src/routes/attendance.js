@@ -42,7 +42,7 @@ router.post('/', async (req, res) => {
 
     // Verify student belongs to teacher
     const student = await query(
-      'SELECT id, points FROM students WHERE id = ? AND teacher_id = ?',
+      'SELECT id FROM students WHERE id = ? AND teacher_id = ?',
       [studentId, req.user.id]
     )
 
@@ -50,31 +50,11 @@ router.post('/', async (req, res) => {
       return res.status(404).json({ error: 'Student not found' })
     }
 
-    const settings = await query(
-      'SELECT points_on_time, points_late, points_absent FROM teacher_settings WHERE teacher_id = ?',
-      [req.user.id]
-    )
-
-    const pointsSettings = settings.rows[0] || {
-      points_on_time: 2,
-      points_late: -2,
-      points_absent: -5
-    }
-
-    const pointsChange = onTime ? pointsSettings.points_on_time : pointsSettings.points_late
-    const newPoints = Math.max(0, student.rows[0].points + pointsChange)
-
     const id = uuidv4()
     await query(
       `INSERT INTO attendance (id, student_id, date, on_time)
        VALUES (?, ?, ?, ?)`,
       [id, studentId, date, onTime]
-    )
-
-    // Update student points
-    await query(
-      'UPDATE students SET points = ? WHERE id = ?',
-      [newPoints, studentId]
     )
 
     const result = await query('SELECT * FROM attendance WHERE id = ?', [id])
@@ -207,6 +187,55 @@ router.post('/weekly-bonus/:studentId', async (req, res) => {
   } catch (error) {
     console.error('Error checking weekly bonus:', error)
     res.status(500).json({ error: 'Failed to check weekly bonus' })
+  }
+})
+
+// Remove weekly bonus if week is no longer perfect
+router.delete('/weekly-bonus/:studentId/:weekStartDate', async (req, res) => {
+  try {
+    const { studentId, weekStartDate } = req.params
+
+    // Verify student belongs to teacher
+    const student = await query(
+      'SELECT id, points FROM students WHERE id = ? AND teacher_id = ?',
+      [studentId, req.user.id]
+    )
+
+    if (student.rows.length === 0) {
+      return res.status(404).json({ error: 'Student not found' })
+    }
+
+    // Find and remove the bonus
+    const bonus = await query(
+      'SELECT id FROM weekly_bonuses WHERE student_id = ? AND week_start_date = ?',
+      [studentId, weekStartDate]
+    )
+
+    if (bonus.rows.length === 0) {
+      return res.json({ message: 'No bonus found for this week' })
+    }
+
+    // Simply subtract 5 bonus points from current total
+    const newPoints = Math.max(0, student.rows[0].points - 5)
+    
+    await query(
+      'UPDATE students SET points = ? WHERE id = ?',
+      [newPoints, studentId]
+    )
+
+    await query(
+      'DELETE FROM weekly_bonuses WHERE id = ?',
+      [bonus.rows[0].id]
+    )
+
+    res.json({ 
+      success: true, 
+      message: 'Bonus removed - week is no longer perfect',
+      newPoints 
+    })
+  } catch (error) {
+    console.error('Error removing weekly bonus:', error)
+    res.status(500).json({ error: 'Failed to remove weekly bonus' })
   }
 })
 

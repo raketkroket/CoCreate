@@ -19,8 +19,7 @@ const settings = ref({
   class_year: '2023-2024',
   class_subject: '',
   points_on_time: 2,
-  points_late: -2,
-  points_absent: -5
+  points_late: -1
 })
 
 const loadTeacherInfo = async () => {
@@ -37,14 +36,15 @@ const loadSettings = async () => {
   if (!user.value) return
   try {
     const data = await api.getTeacherSettings()
+    console.log('📋 Loaded settings from DB:', data)
     settings.value = {
       class_name: data.class_name,
       class_year: data.class_year,
       class_subject: data.class_subject,
       points_on_time: data.points_on_time,
-      points_late: data.points_late,
-      points_absent: data.points_absent
+      points_late: data.points_late
     }
+    console.log('✅ Settings now:', settings.value)
   } catch (error) {
     console.error('Error loading settings:', error)
   }
@@ -56,16 +56,17 @@ const saveSettings = async () => {
   isSaving.value = true
 
   try {
+    console.log('💾 Saving settings:', settings.value)
     await api.updateTeacherSettings({
       class_name: settings.value.class_name,
       class_year: settings.value.class_year,
       class_subject: settings.value.class_subject,
       points_on_time: settings.value.points_on_time,
-      points_late: settings.value.points_late,
-      points_absent: settings.value.points_absent
+      points_late: settings.value.points_late
     })
 
     showToast('Instellingen opgeslagen', 'success')
+    console.log('✅ Settings saved successfully')
   } catch (error) {
     console.error('Error saving settings:', error)
     showToast('Fout bij opslaan instellingen', 'error')
@@ -208,23 +209,7 @@ onMounted(async () => {
               />
             </div>
 
-            <div class="form-group">
-              <label for="points_absent">
-                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <line x1="18" y1="6" x2="6" y2="18"></line>
-                  <line x1="6" y1="6" x2="18" y2="18"></line>
-                </svg>
-                Punten voor afwezig
-              </label>
-              <input
-                id="points_absent"
-                v-model.number="settings.points_absent"
-                type="number"
-                class="form-input"
-                min="-10"
-                max="10"
-              />
-            </div>
+
 
             <div class="info-box">
               <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -233,7 +218,7 @@ onMounted(async () => {
                 <line x1="12" y1="8" x2="12.01" y2="8"></line>
               </svg>
               <div>
-                <strong>Let op:</strong> Negatieve waarden trekken punten af. Een perfecte week geeft altijd een bonus van +5 punten.
+                <strong>Let op:</strong> Negatieve waarden trekken punten af. Grijs (geen markering) = geen punten. Groen (op tijd) = +punten. Rood (te laat) = -punten.
               </div>
             </div>
           </div>

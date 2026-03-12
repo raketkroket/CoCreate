@@ -4,16 +4,19 @@ import { useRouter } from 'vue-router'
 import { useApi } from '../composables/useApi'
 import { useAuth } from '../composables/useAuthApi'
 import { useConfetti } from '../composables/useConfetti'
+import { useToast } from '../composables/useToast'
+import NavMenu from './NavMenu.vue'
 import StudentCard from './StudentCard.vue'
 import AddStudentModal from './AddStudentModal.vue'
 import AssignRewardModal from './AssignRewardModal.vue'
-import NavMenu from './NavMenu.vue'
 import StatCard from './StatCard.vue'
+import ToastContainer from './ToastContainer.vue'
 
 const router = useRouter()
 const api = useApi()
 const { user, signOut } = useAuth()
 const { celebrate } = useConfetti()
+const { showToast } = useToast()
 
 const students = ref([])
 const attendanceRecords = ref([])
@@ -30,8 +33,7 @@ const processingAttendance = ref(new Set())
 
 const settings = ref({
   points_on_time: 2,
-  points_late: -2,
-  points_absent: -5
+  points_late: -2
 })
 
 const getWeekDates = (weekOffset: number) => {
@@ -97,16 +99,29 @@ const loadSettings = async () => {
   if (!user.value) return
   try {
     const data = await api.getTeacherSettings()
-    if (data) {
+    console.log('📊 Raw settings from API:', data)
+    
+    if (data && data.points_on_time !== undefined && data.points_late !== undefined) {
       settings.value = {
-        points_on_time: data.points_on_time,
-        points_late: data.points_late,
-        points_absent: data.points_absent
+        points_on_time: parseInt(data.points_on_time),
+        points_late: parseInt(data.points_late)
       }
+      console.log('✓ Loaded teacher settings:', settings.value)
+    } else {
+      console.warn('⚠️ Settings missing data:', data)
     }
   } catch (err) {
-    console.error('Error loading settings:', err)
+    console.error('❌ Error loading settings:', err)
   }
+}
+
+const ensureSettings = async () => {
+  // Force refresh settings before each action
+  await loadSettings()
+  console.log('📊 Current settings for calculation:', {
+    points_on_time: settings.value.points_on_time,
+    points_late: settings.value.points_late
+  })
 }
 
 const loadStudents = async () => {
@@ -172,6 +187,9 @@ const toggleAttendance = async (studentId: string, date: string) => {
   const lockKey = `${studentId}-${date}`
   if (processingAttendance.value.has(lockKey)) return
 
+  // Force load fresh settings before action
+  await ensureSettings()
+
   processingAttendance.value.add(lockKey)
 
   try {
@@ -182,23 +200,35 @@ const toggleAttendance = async (studentId: string, date: string) => {
       return
     }
 
-    if (existing) {
-      // Delete existing
-      await api.deleteAttendance(existing.id)
-      const pointsChange = existing.on_time ? -settings.value.points_on_time : -settings.value.points_late
-      const newPoints = Math.max(0, student.points + pointsChange)
-      await api.updateStudent(studentId, { points: newPoints })
-      attendanceRecords.value = attendanceRecords.value.filter(a => a.id !== existing.id)
-      student.points = newPoints
-    } else {
-      // Create new
+    let pointsChange = 0
+
+    if (!existing) {
+      // State 1: empty → on_time (green, +points)
       const newAttendance = await api.markAttendance(studentId, date, true)
       attendanceRecords.value.push(newAttendance)
-      const newPoints = student.points + settings.value.points_on_time
+      pointsChange = settings.value.points_on_time
+      console.log(`✓ Marked on_time (${date}): +${settings.value.points_on_time} points`)
+    } else if (existing.on_time) {
+      // State 2: on_time → late/absent (red, change from +points to -points)
+      await api.updateAttendance(existing.id, false)
+      pointsChange = -settings.value.points_on_time + settings.value.points_late
+      existing.on_time = false
+      console.log(`⚠️ Changed to late (${date}): -${settings.value.points_on_time} + (${settings.value.points_late}) = ${pointsChange} points`)
+    } else {
+      // State 3: late/absent → empty (grey, reverse the red penalty)
+      await api.deleteAttendance(existing.id)
+      pointsChange = -settings.value.points_late
+      attendanceRecords.value = attendanceRecords.value.filter(a => a.id !== existing.id)
+      console.log(`🔄 Cleared record (${date}): -${settings.value.points_late} = ${pointsChange} points`)
+    }
+
+    // Apply point change
+    const newPoints = Math.max(0, student.points + pointsChange)
+    console.log(`Points: ${student.points} + ${pointsChange} = ${newPoints}`)
+    if (pointsChange !== 0) {
       await api.updateStudent(studentId, { points: newPoints })
       student.points = newPoints
     }
-    await checkWeeklyBonus(studentId)
   } catch (err) {
     console.error('Error toggling attendance:', err)
   } finally {
@@ -206,27 +236,7 @@ const toggleAttendance = async (studentId: string, date: string) => {
   }
 }
 
-const checkWeeklyBonus = async (studentId: string) => {
-  try {
-    const student = students.value.find(s => s.id === studentId)
-    if (!student) return
 
-    // Get week dates for current week
-    const weekStart = weekDates.value[0]
-    const weekEnd = weekDates.value[weekDates.value.length - 1]
-
-    const result = await api.checkWeeklyBonus(studentId, weekStart, weekEnd)
-    
-    if (result.bonusAwarded) {
-      console.log('✅ Perfect week! +5 bonus points awarded!')
-      student.points = result.newPoints
-      celebrate()
-      alert('🎉 Perfecte week! Je hebt +5 bonuspunten verdiend!')
-    }
-  } catch (err) {
-    console.error('Error checking weekly bonus:', err)
-  }
-}
 
 const addStudent = async (name: string) => {
   if (!user.value) return
@@ -579,6 +589,8 @@ onMounted(async () => {
         @close="closeRewardModal"
       />
     </div>
+
+    <ToastContainer />
   </div>
 </template>
 

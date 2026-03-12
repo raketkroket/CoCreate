@@ -140,6 +140,10 @@ export function useApi() {
     })
   }
 
+  const removeWeeklyBonus = async (studentId, weekStartDate) => {
+    return apiCall('DELETE', `/attendance/weekly-bonus/${studentId}/${weekStartDate}`)
+  }
+
   // Rewards
   const getRewards = async () => {
     return apiCall('GET', '/rewards')
@@ -208,6 +212,7 @@ export function useApi() {
     updateAttendance,
     deleteAttendance,
     checkWeeklyBonus,
+    removeWeeklyBonus,
 
     // Rewards
     getRewards,

@@ -44,7 +44,7 @@ router.get('/settings', async (req, res) => {
 // Update teacher settings
 router.patch('/settings', async (req, res) => {
   try {
-    const { class_name, class_year, class_subject, points_on_time, points_late, points_absent } = req.body
+    const { class_name, class_year, class_subject, points_on_time, points_late } = req.body
 
     const fields = []
     const values = []
@@ -68,10 +68,6 @@ router.patch('/settings', async (req, res) => {
     if (points_late !== undefined) {
       fields.push(`points_late = ?`)
       values.push(points_late)
-    }
-    if (points_absent !== undefined) {
-      fields.push(`points_absent = ?`)
-      values.push(points_absent)
     }
 
     if (fields.length === 0) {

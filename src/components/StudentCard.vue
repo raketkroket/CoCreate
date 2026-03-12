@@ -27,7 +27,7 @@ const getStatusClass = (studentId: string, date: string) => {
 const getStatusIcon = (studentId: string, date: string) => {
   const attendance = props.getAttendance(studentId, date)
   if (!attendance) return '–'
-  return attendance.on_time ? '✓' : '⚠'
+  return attendance.on_time ? '✓' : '✕'
 }
 
 const achievementLevel = computed(() => {
@@ -338,16 +338,16 @@ const gridColumns = computed(() => props.weekDates.length)
 }
 
 .attendance-cell.late {
-  background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
-  border-color: #fcd34d;
+  background: linear-gradient(135deg, #fee2e2 0%, #fecaca 100%);
+  border-color: #fca5a5;
 }
 
 .attendance-cell.late .status-icon {
-  color: #d97706;
+  color: #dc2626;
 }
 
 .attendance-cell.late:hover {
-  background: linear-gradient(135deg, #fde68a 0%, #fcd34d 100%);
+  background: linear-gradient(135deg, #fecaca 0%, #fca5a5 100%);
   transform: scale(1.05);
 }
 
