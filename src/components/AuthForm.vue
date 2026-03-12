@@ -17,6 +17,9 @@ const isLoading = ref(false)
 const { signIn, signUp } = useAuth()
 
 const handleSubmit = async () => {
+  // Prevent double submission
+  if (isLoading.value) return
+
   error.value = ''
   successMessage.value = ''
   isLoading.value = true
@@ -24,34 +27,46 @@ const handleSubmit = async () => {
   try {
     if (isLogin.value) {
       await signIn(email.value, password.value)
+      console.log('✅ Sign in successful')
+      // Wait a moment to ensure state is updated
+      await new Promise(resolve => setTimeout(resolve, 100))
       emit('success')
     } else {
-      if (!username.value) {
+      if (!username.value.trim()) {
         error.value = 'Gebruikersnaam is verplicht'
         isLoading.value = false
         return
       }
       await signUp(email.value, password.value, username.value)
+      console.log('✅ Sign up successful')
+      // Wait a moment to ensure state is updated
+      await new Promise(resolve => setTimeout(resolve, 100))
       emit('success')
     }
   } catch (e: any) {
+    console.error('Auth error:', e)
     const message = e.message || 'Er is iets misgegaan'
 
     if (message.includes('Registratie gelukt')) {
       successMessage.value = message
       isLogin.value = true
       password.value = ''
+      // Don't reset loading - wait for user to see success message
+      isLoading.value = false
     } else {
       error.value = message
+      isLoading.value = false
     }
-  } finally {
-    isLoading.value = false
   }
 }
 
 const toggleMode = () => {
+  // Don't allow toggle while loading
+  if (isLoading.value) return
+
   isLogin.value = !isLogin.value
   error.value = ''
+  successMessage.value = ''
   email.value = ''
   password.value = ''
   username.value = ''
@@ -79,6 +94,7 @@ const toggleMode = () => {
             type="text"
             placeholder="Vul je gebruikersnaam in"
             required
+            :disabled="isLoading"
           />
         </div>
 
@@ -90,6 +106,7 @@ const toggleMode = () => {
             type="email"
             placeholder="docent@school.nl"
             required
+            :disabled="isLoading"
           />
         </div>
 
@@ -102,6 +119,7 @@ const toggleMode = () => {
             placeholder="••••••••"
             required
             minlength="6"
+            :disabled="isLoading"
           />
         </div>
 
@@ -130,7 +148,7 @@ const toggleMode = () => {
       <div class="toggle-mode">
         <p>
           {{ isLogin ? 'Nog geen account?' : 'Al een account?' }}
-          <button type="button" @click="toggleMode" class="link-btn">
+          <button type="button" @click="toggleMode" class="link-btn" :disabled="isLoading">
             {{ isLogin ? 'Registreer hier' : 'Log hier in' }}
           </button>
         </p>
@@ -239,6 +257,14 @@ input:focus {
   background: white;
 }
 
+input:disabled {
+  background: #f1f5f9;
+  border-color: #cbd5e1;
+  color: #94a3b8;
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
 .success-message {
   background: linear-gradient(135deg, #d1fae5 0%, #a7f3d0 100%);
   color: #065f46;
@@ -343,9 +369,15 @@ input:focus {
   transition: all 0.2s ease;
 }
 
-.link-btn:hover {
+.link-btn:hover:not(:disabled) {
   color: #1d4ed8;
   text-decoration: underline;
+}
+
+.link-btn:disabled {
+  color: #9ca3af;
+  cursor: not-allowed;
+  opacity: 0.6;
 }
 
 @media (max-width: 640px) {
